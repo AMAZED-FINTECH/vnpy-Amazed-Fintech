@@ -26,6 +26,7 @@ from vnpy.trader.constant import (
     Product,
     Status,
     Offset,
+    Interval,
 )
 from vnpy.trader.gateway import BaseGateway
 from vnpy.trader.object import (
@@ -38,6 +39,7 @@ from vnpy.trader.object import (
     CancelRequest,
     SubscribeRequest,
     PositionData,
+    HistoryRequest,
 )
 REST_HOST = "https://www.okex.com"
 WEBSOCKET_HOST = "wss://real.okex.com:10442/ws/v3"
@@ -62,13 +64,35 @@ TYPE_OKEXF2VT = {
 }
 TYPE_VT2OKEXF = {v: k for k, v in TYPE_OKEXF2VT.items()}
 
+INTERVAL_OKEX2VT = {
+    "60": Interval.MINUTE,
+    "180": Interval.MINUTE3,
+    "300": Interval.MINUTE5,
+    "900": Interval.MINUTE15,
+    "1800": Interval.MINUTE30,
+    "3600": Interval.HOUR,
+    "7200": Interval.HOUR2,
+    "14400": Interval.HOUR4,
+    "21600": Interval.HOUR6,
+    "43200": Interval.HOUR12,
+    "86400": Interval.DAILY,
+}
+INTERVAL_VT2OKEX = {v: k for k, v in INTERVAL_OKEX2VT.items()}
+
+
 instruments = set()
 currencies = set()
+sub_instruments = ["BTC-USD-190927",
+                   "ETH-USD-190927",
+                   "LTC-USD-190927",
+                   "EOS-USD-190927",
+                   "BCH-USD-190927",
+                   ]
 
 
 class OkexfGateway(BaseGateway):
     """
-    VN Trader Gateway for OKEX connection.
+    OKEX FUTURES 交割合约 connection.
     """
 
     default_setting = {
@@ -112,24 +136,28 @@ class OkexfGateway(BaseGateway):
         self.ws_api.connect(key, secret, passphrase, proxy_host, proxy_port)
 
     def subscribe(self, req: SubscribeRequest):
-        """"""
+        """websocket订阅"""
         self.ws_api.subscribe(req)
 
     def send_order(self, req: OrderRequest):
-        """"""
+        """restful发单"""
         return self.rest_api.send_order(req)
 
     def cancel_order(self, req: CancelRequest):
-        """"""
+        """restful取消发单"""
         self.rest_api.cancel_order(req)
 
     def query_account(self):
-        """"""
-        pass
+        """查询账户"""
+        self.rest_api.query_account()
 
     def query_position(self):
-        """"""
-        pass
+        """查询持仓"""
+        self.rest_api.query_position()
+
+    def query_contract(self):
+        """查询合约"""
+        self.rest_api.query_contract()
 
     def close(self):
         """"""
@@ -144,6 +172,10 @@ class OkexfGateway(BaseGateway):
     def get_order(self, orderid: str):
         """"""
         return self.orders.get(orderid, None)
+
+    def query_history(self, req: HistoryRequest):
+        """"""
+        self.rest_api.query_history(req)
 
 
 class OkexfRestApi(RestClient):
@@ -218,9 +250,13 @@ class OkexfRestApi(RestClient):
         self.start(session_number)
         self.gateway.write_log("REST API启动成功")
 
+        # 查询时间
         self.query_time()
+        # 查询合约
         self.query_contract()
+        # 查询账户
         self.query_account()
+        # 查询持仓
         self.query_position()
 
     def _new_order_id(self):
@@ -229,12 +265,12 @@ class OkexfRestApi(RestClient):
             return self.order_count
 
     def send_order(self, req: OrderRequest):
-        """"""
+        """下单"""
         # Need both offset and direction for sending order.
         if (req.offset, req.direction) not in TYPE_VT2OKEXF:
             return ""
 
-        orderid = f"a{self.connect_time}{self._new_order_id()}"
+        orderid = f"futures{self.connect_time}{self._new_order_id()}"
         
         data = {
             "client_oid": orderid,
@@ -266,7 +302,7 @@ class OkexfRestApi(RestClient):
         return order.vt_orderid
 
     def cancel_order(self, req: CancelRequest):
-        """"""
+        """取消下单"""
         path = "/api/futures/v3/cancel_order/%s/%s" % (req.symbol, req.orderid)
         self.add_request(
             "POST",
@@ -278,7 +314,8 @@ class OkexfRestApi(RestClient):
         )
 
     def query_contract(self):
-        """"""
+        """查询合约，这里和现货不一样，每周会断开，断开之后要重连，重连合约会变
+        重置合约，重置订阅"""
         self.add_request(
             "GET",
             "/api/futures/v3/instruments",
@@ -286,7 +323,7 @@ class OkexfRestApi(RestClient):
         )
 
     def query_account(self):
-        """"""
+        """查询账户"""
         self.add_request(
             "GET",
             "/api/futures/v3/accounts",
@@ -294,25 +331,27 @@ class OkexfRestApi(RestClient):
         )
 
     def query_order(self):
-        """"""
+        """查询订单"""
         for code in instruments:
 
             # get waiting orders
             self.add_request(
                 "GET",
-                "/api/futures/v3/orders/%s?status=0" % (code),
+                "/api/futures/v3/orders/%s?state=0" % (code),
                 callback=self.on_query_order
             )
 
             # get part traded orders
             self.add_request(
                 "GET",
-                "/api/futures/v3/orders/%s?status=1" % (code),
+                "/api/futures/v3/orders/%s?state=1" % (code),
                 callback=self.on_query_order
             )
 
     def query_position(self):
-        """"""
+        """查询持仓"""
+        # 这里要修改一下，每次查询持仓之前，要把当前持仓清空
+        instruments = set()
         self.add_request(
             "GET",
             "/api/futures/v3/position",
@@ -320,7 +359,7 @@ class OkexfRestApi(RestClient):
         )
 
     def query_time(self):
-        """"""
+        """查询时间"""
         self.add_request(
             "GET",
             "/api/general/v3/time",
@@ -328,7 +367,11 @@ class OkexfRestApi(RestClient):
         )
 
     def on_query_contract(self, data, request):
-        """"""
+        """查询合约,这里是每次调用查询合约，要清空合约和货币"""
+
+        instruments.clear()
+        currencies.clear()
+
         for instrument_data in data:
             symbol = instrument_data["instrument_id"]
             contract = ContractData(
@@ -348,14 +391,8 @@ class OkexfRestApi(RestClient):
 
         self.gateway.write_log("合约信息查询成功")
 
-        # Start websocket api after instruments data collected
-        self.gateway.ws_api.start()
-
-        # and query pending orders
-        self.query_order()
-
     def on_query_account(self, data, request):
-        """"""
+        """查询账户"""
 
         for currency, d in data["info"].items():
             account = AccountData(
@@ -367,8 +404,18 @@ class OkexfRestApi(RestClient):
             self.gateway.on_account(account)      
         self.gateway.write_log("账户资金查询成功")
 
+        # Start websocket api after instruments data collected
+        # 这里本来是查询合约之后可以订阅，但是，由于OKEX FUTURES合约变更
+        # 导致重连之后，立刻就需要重新查询合约
+        # 否则，在subscribe_topic那里就会出现订阅不存在的合约问题
+        # 所以，将启动websocket线程的功能设置在查询账户之后，也就是restapi启动之后
+        self.gateway.ws_api.start()
+
+        # and query pending orders
+        self.query_order()
+
     def on_query_position(self, data, request):
-        """"""
+        """查询持仓"""
         if not data["holding"]:
             return
 
@@ -400,7 +447,8 @@ class OkexfRestApi(RestClient):
                 self.gateway.on_position(pos)
 
     def on_query_order(self, data, request):
-        """"""
+        """查询订单"""
+        # 这里是查询订单，order_data是OKEX的订单，OrderData是本地需要保存的订单
         for order_data in data["order_info"]:
             offset, direction = TYPE_OKEXF2VT[order_data["type"]]
             order = OrderData(
@@ -414,13 +462,13 @@ class OkexfRestApi(RestClient):
                 price=float(order_data["price"]),
                 volume=float(order_data["size"]),
                 time=utc_to_local(order_data["timestamp"]).strftime("%H:%M:%S"),
-                status=STATUS_OKEXF2VT[order_data["status"]],
+                status=STATUS_OKEXF2VT[order_data["state"]],
                 gateway_name=self.gateway_name,
             )
             self.gateway.on_order(order)
 
     def on_query_time(self, data, request):
-        """"""
+        """查询时间"""
         server_time = data["iso"]
         local_time = datetime.utcnow().isoformat()
         msg = f"服务器时间：{server_time}，本机时间：{local_time}"
@@ -429,6 +477,7 @@ class OkexfRestApi(RestClient):
     def on_send_order_failed(self, status_code: str, request: Request):
         """
         Callback when sending order failed on server.
+        下单失败的回掉函数，这里也是本地的概念，无需修改status->state
         """
 
         order = request.extra
@@ -443,6 +492,7 @@ class OkexfRestApi(RestClient):
     ):
         """
         Callback when sending order caused exception.
+        下单错误的回掉函数，这里也是本地的概念，无需修改status->state
         """
 
         order = request.extra
@@ -456,6 +506,7 @@ class OkexfRestApi(RestClient):
     def on_send_order(self, data, request):
         """
         Websocket will push a new order status
+        本地为Status，OKEX修改为state
         """
         order = request.extra
         error_msg = data["error_message"]
@@ -511,6 +562,29 @@ class OkexfRestApi(RestClient):
             self.exception_detail(exception_type, exception_value, tb, request)
         )
 
+    def query_history(self, req: HistoryRequest):
+        """这里有待改进，因为Okex推送2000条数据，但是这里默认只推送200条"""
+        data = {
+            "instrument_id": req.symbol,
+            "granularity": INTERVAL_VT2OKEX[req.interval]
+        }
+
+        path = "/api/futures/v3/instruments/" + req.symbol + "/candles"
+        self.add_request(
+            "GET",
+            path,
+            callback=self.on_query_history,
+            data=data,
+            on_error=self.on_error,
+            on_failed=self.on_failed,
+            extra=req
+        )
+
+    def on_query_history(self, data, request):
+        """"""
+        print(data)
+        pass
+
 
 class OkexfWebsocketApi(WebsocketClient):
     """"""
@@ -518,7 +592,7 @@ class OkexfWebsocketApi(WebsocketClient):
     def __init__(self, gateway):
         """"""
         super(OkexfWebsocketApi, self).__init__()
-        self.ping_interval = 20     # OKEX use 30 seconds for ping
+        self.ping_interval = 30     # OKEX use 30 seconds for ping
 
         self.gateway = gateway
         self.gateway_name = gateway.gateway_name
@@ -580,13 +654,19 @@ class OkexfWebsocketApi(WebsocketClient):
         self.send_packet(req)
 
     def on_connected(self):
-        """"""
+        """OKEX 期货重连之后，要重新订阅"""
         self.gateway.write_log("Websocket API连接成功")
         self.login()
 
     def on_disconnected(self):
         """"""
         self.gateway.write_log("Websocket API连接断开")
+        # 由于是restful查询合约，因此，断开websocket之后，重新查询用
+        self.gateway.query_contract()
+        # 由于这里是在原来的基础上新加的一个功能
+        # 因此，为了避免login->on_login->subscribe_topic->instruments
+        # 为了避免调用instruments时, instruments不存在的问题，因此要用time.sleep(1)
+        # 由于OKEX的Ping是30秒，因此，1秒钟的影响，暂时先忽略不计
 
     def on_packet(self, packet: dict):
         """"""
@@ -683,8 +763,15 @@ class OkexfWebsocketApi(WebsocketClient):
         }
         self.send_packet(req)
 
+        # 这里添加gateway的文件，以保证能够一开始就订阅，这里算是改动比较大的了
+        # 为了减少服务器压力，这里只需要订阅需要的合约，也就是季度交割合约
+        for futures in sub_instruments:
+            req = SubscribeRequest(symbol=futures, exchange=Exchange.OKEX)
+            self.subscribe(req)
+
     def on_login(self, data: dict):
-        """"""
+        """登录成功之后，自动订阅主题"""
+
         success = data.get("success", False)
 
         if success:
@@ -732,7 +819,7 @@ class OkexfWebsocketApi(WebsocketClient):
             self.gateway.on_tick(copy(tick))
 
     def on_order(self, d):
-        """"""
+        """这里是将收到的order转换成本地OrderData"""
         offset, direction = TYPE_OKEXF2VT[d["type"]]
         order = OrderData(
             symbol=d["instrument_id"],
@@ -745,7 +832,7 @@ class OkexfWebsocketApi(WebsocketClient):
             volume=float(d["size"]),
             traded=float(d["filled_qty"]),
             time=utc_to_local(d["timestamp"]).strftime("%H:%M:%S"),
-            status=STATUS_OKEXF2VT[d["status"]],
+            status=STATUS_OKEXF2VT[d["state"]],
             gateway_name=self.gateway_name,
         )
         self.gateway.on_order(copy(order))

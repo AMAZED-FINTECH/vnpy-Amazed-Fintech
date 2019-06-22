@@ -138,7 +138,7 @@ class WebsocketClient(object):
         return websocket.create_connection(*args, **kwargs)
 
     def _connect(self):
-        """这里需要修改"""
+        """websocket的连接，连接之后调用on_connected()"""
         self._ws = self._create_connection(
             self.host,
             sslopt={"cert_reqs": ssl.CERT_NONE},
@@ -151,10 +151,13 @@ class WebsocketClient(object):
     def _disconnect(self):
         """
         """
+        print(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ": 断开重连")
         with self._ws_lock:
             if self._ws:
                 self._ws.close()
             self._ws = None
+            # 断开连接之后，要调用on_disconnected
+            self.on_disconnected()
 
     def _run(self):
         """

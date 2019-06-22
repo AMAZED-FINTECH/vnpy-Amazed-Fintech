@@ -85,9 +85,9 @@ currencies = set()
 mysubscribe = ["BTC-USDT", "ETH-USDT", "LTC-USDT", "EOS-USDT", "BCH-USDT"]
 
 
-class OkexGateway(BaseGateway):
+class OkexmGateway(BaseGateway):
     """
-    VN Trader Gateway for OKEX connection.
+    OKEX币币杠杆.
     """
 
     default_setting = {
@@ -103,10 +103,10 @@ class OkexGateway(BaseGateway):
 
     def __init__(self, event_engine):
         """Constructor"""
-        super(OkexGateway, self).__init__(event_engine, "OKEX")
+        super(OkexmGateway, self).__init__(event_engine, "OKEXM")
 
-        self.rest_api = OkexRestApi(self)
-        self.ws_api = OkexWebsocketApi(self)
+        self.rest_api = OkexmRestApi(self)
+        self.ws_api = OkexmWebsocketApi(self)
 
         self.orders = {}
 
@@ -169,14 +169,14 @@ class OkexGateway(BaseGateway):
         self.rest_api.query_history(req)
 
 
-class OkexRestApi(RestClient):
+class OkexmRestApi(RestClient):
     """
     OKEX REST API
     """
 
     def __init__(self, gateway: BaseGateway):
         """"""
-        super(OkexRestApi, self).__init__()
+        super(OkexmRestApi, self).__init__()
 
         self.gateway = gateway
         self.gateway_name = gateway.gateway_name
@@ -267,15 +267,16 @@ class OkexRestApi(RestClient):
     def send_order(self, req: OrderRequest):
         """币币下单"""
 
-        # Id组成用spot做前缀来下单
-        orderid = f"spot{self.connect_time}{self._new_order_id()}"
+        # Id组成用margin做前缀来下单
+        orderid = f"margin{self.connect_time}{self._new_order_id()}"
 
         # 公用字段：client_id, type, side, instrument_id, order_type
         data = {
             "client_oid": orderid,
             "type": ORDERTYPE_VT2OKEX[req.type],
             "side": DIRECTION_VT2OKEX[req.direction],
-            "instrument_id": req.symbol
+            "instrument_id": req.symbol,
+            "margin_trading": "2"
         }
 
         # 如果是市价单，卖出必填size，买入必填notional
@@ -293,7 +294,7 @@ class OkexRestApi(RestClient):
 
         self.add_request(
             "POST",
-            "/api/spot/v3/orders",
+            "/api/margin/v3/orders",
             callback=self.on_send_order,
             data=data,
             extra=order,
@@ -311,7 +312,7 @@ class OkexRestApi(RestClient):
             "client_oid": req.orderid
         }
 
-        path = "/api/spot/v3/cancel_orders/" + req.orderid
+        path = "/api/margin/v3/cancel_orders/" + req.orderid
         self.add_request(
             "POST",
             path,
@@ -331,10 +332,10 @@ class OkexRestApi(RestClient):
         )
 
     def query_account(self):
-        """查询币币账户信息，spot accounts"""
+        """查询币币杠杆账户信息，margin accounts"""
         self.add_request(
             "GET",
-            "/api/spot/v3/accounts",
+            "/api/margin/v3/accounts",
             callback=self.on_query_account
         )
 
@@ -342,7 +343,7 @@ class OkexRestApi(RestClient):
         """获取所有未成交订单"""
         self.add_request(
             "GET",
-            "/api/spot/v3/orders_pending",
+            "/api/margin/v3/orders_pending",
             callback=self.on_query_order
         )
 
@@ -384,13 +385,28 @@ class OkexRestApi(RestClient):
         # 这里的设计，当查询完合约之后，要启动websocket api
         self.gateway.ws_api.start()
 
+        # 查询合约之后，查询未成交订单
+        self.query_order()
+
     def on_query_account(self, data, request):
         """查询账户的回调函数"""
         for account_data in data:
+            currency = account_data["instrument_id"].split("-")[0]
+            currencyid = "currency:" + currency
             account = AccountData(
-                accountid=account_data["currency"],
-                balance=float(account_data["balance"]),
-                frozen=float(account_data["hold"]),
+                accountid=account_data["instrument_id"] + "-" + currency,
+                balance=float(account_data[currencyid]["balance"]),
+                frozen=float(account_data[currencyid]["hold"]),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_account(account)
+
+            currency = account_data["instrument_id"].split("-")[1]
+            currencyid = "currency:" + currency
+            account = AccountData(
+                accountid=account_data["instrument_id"] + "-" + currency,
+                balance=float(account_data[currencyid]["balance"]),
+                frozen=float(account_data[currencyid]["hold"]),
                 gateway_name=self.gateway_name
             )
             self.gateway.on_account(account)
@@ -531,12 +547,12 @@ class OkexRestApi(RestClient):
         pass
 
 
-class OkexWebsocketApi(WebsocketClient):
+class OkexmWebsocketApi(WebsocketClient):
     """websocket api"""
 
     def __init__(self, gateway):
         """"""
-        super(OkexWebsocketApi, self).__init__()
+        super(OkexmWebsocketApi, self).__init__()
         self.ping_interval = 30     # OKEX use 30 seconds for ping
 
         self.gateway = gateway

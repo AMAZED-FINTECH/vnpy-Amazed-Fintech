@@ -19,7 +19,8 @@ dist
 
 # vn.py
 .vntrader
-noupdate_test.py
+# 测试账号的内容之类的东西，不向github上传
+NoUpload*
 
 # Visual Studio intermediate files
 *.exp

@@ -134,3 +134,12 @@ class Interval(Enum):
     HOUR = "1h"
     DAILY = "d"
     WEEKLY = "w"
+
+    MINUTE3 = "3m"
+    MINUTE5 = "5m"
+    MINUTE15 = "15m"
+    MINUTE30 = "30m"
+    HOUR2 = "2h"
+    HOUR4 = "4h"
+    HOUR6 = "6h"
+    HOUR12 = "12h"
