@@ -26,7 +26,7 @@ class BacktestingMode(Enum):
     BAR = 1
     TICK = 2
 
-
+# 本地停止单
 @dataclass
 class StopOrder:
     vt_symbol: str

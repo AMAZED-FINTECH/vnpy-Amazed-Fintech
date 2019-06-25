@@ -13,27 +13,33 @@ from vnpy.trader.constant import (Direction, Offset, Exchange)
 
 
 class OffsetConverter:
-    """"""
+    """委托转换"""
 
     def __init__(self, main_engine: MainEngine):
-        """"""
+        """初始化,添加主引擎"""
         self.main_engine = main_engine
         self.holdings = {}
 
     def update_position(self, position: PositionData):
-        """"""
+        """更新持仓"""
+        # 检查是否需要转换
         if not self.is_convert_required(position.vt_symbol):
             return
 
+        # 查看当前持仓
         holding = self.get_position_holding(position.vt_symbol)
+        # 更新当前持仓
         holding.update_position(position)
 
     def update_trade(self, trade: TradeData):
-        """"""
+        """更新成交"""
+        # 检查是否需要转换
         if not self.is_convert_required(trade.vt_symbol):
             return
 
+        # 获取当前持仓
         holding = self.get_position_holding(trade.vt_symbol)
+        # 更新持仓
         holding.update_trade(trade)
 
     def update_order(self, order: OrderData):
@@ -45,7 +51,7 @@ class OffsetConverter:
         holding.update_order(order)
 
     def update_order_request(self, req: OrderRequest, vt_orderid: str):
-        """"""
+        """OrderRequest也需要更新"""
         if not self.is_convert_required(req.vt_symbol):
             return
 
@@ -54,6 +60,7 @@ class OffsetConverter:
 
     def get_position_holding(self, vt_symbol: str):
         """"""
+        # 获取当前持仓
         holding = self.holdings.get(vt_symbol, None)
         if not holding:
             contract = self.main_engine.get_contract(vt_symbol)
@@ -63,25 +70,33 @@ class OffsetConverter:
 
     def convert_order_request(self, req: OrderRequest, lock: bool):
         """"""
+        # 转换order_request
         if not self.is_convert_required(req.vt_symbol):
             return [req]
 
+        # 持仓
         holding = self.get_position_holding(req.vt_symbol)
 
+        # 如果设置锁,返回转换Order_Request锁
         if lock:
             return holding.convert_order_request_lock(req)
+        # 如果请求为上期所,转换
         elif req.exchange == Exchange.SHFE:
             return holding.convert_order_request_shfe(req)
+        # 否则，只返回convert_order_request
         else:
             return [req]
 
     def is_convert_required(self, vt_symbol: str):
         """
         Check if the contract needs offset convert.
+        检查合约,是否有转换的需要
+        只有是多空这种需要转换,如果合约都是净持仓,无需转换
         """
         contract = self.main_engine.get_contract(vt_symbol)
 
         # Only contracts with long-short position mode requires convert
+        # 如果交易所是净持仓的概念,没有多空的概念,则返回净持仓
         if not contract:
             return False
         elif contract.net_position:
@@ -91,37 +106,52 @@ class OffsetConverter:
 
 
 class PositionHolding:
-    """"""
+    """本地持仓"""
 
     def __init__(self, contract: ContractData):
-        """"""
+        """将合约信息输入，进行初始化"""
         self.vt_symbol = contract.vt_symbol
         self.exchange = contract.exchange
 
+        # 正在委托的订单
         self.active_orders = {}
 
+        # 多单数量
         self.long_pos = 0
+        # 昨 多单
         self.long_yd = 0
+        # 今 多单
         self.long_td = 0
 
+        # 空单数量
         self.short_pos = 0
+        # 昨 空单
         self.short_yd = 0
+        # 今 空单
         self.short_td = 0
 
+        # 多单->冻结
         self.long_pos_frozen = 0
+        # 多单->昨天被冻结
         self.long_yd_frozen = 0
+        # 多单->今天被冻结
         self.long_td_frozen = 0
 
+        # 空单->冻结
         self.short_pos_frozen = 0
+        # 空单->昨天被冻结
         self.short_yd_frozen = 0
+        # 空单->今天被冻结
         self.short_td_frozen = 0
 
     def update_position(self, position: PositionData):
-        """"""
+        """用于初始化仓位,查到一个仓位,"""
+        # 如果是多单
         if position.direction == Direction.LONG:
             self.long_pos = position.volume
             self.long_yd = position.yd_volume
             self.long_td = self.long_pos - self.long_yd
+        # 如果是空单
         else:
             self.short_pos = position.volume
             self.short_yd = position.yd_volume
@@ -129,37 +159,51 @@ class PositionHolding:
 
     def update_order(self, order: OrderData):
         """"""
+        # 如果是活动单,还未成交,只记录下来就可以了
         if order.is_active():
             self.active_orders[order.vt_orderid] = order
+        # 如果这个订单已经成交了,删除活动订单,并计算冻结的订单
         else:
             if order.vt_orderid in self.active_orders:
                 self.active_orders.pop(order.vt_orderid)
 
+        # 计算冻结的订单
         self.calculate_frozen()
 
     def update_order_request(self, req: OrderRequest, vt_orderid: str):
-        """"""
+        """更新本地委托的订单"""
         gateway_name, orderid = vt_orderid.split(".")
 
+        # 从本地的订单到gateway订单的转换
         order = req.create_order_data(orderid, gateway_name)
+        # 更新订单
         self.update_order(order)
 
     def update_trade(self, trade: TradeData):
-        """"""
+        """根据成交更新持仓"""
+        # 方向是多
         if trade.direction == Direction.LONG:
+            # 开仓
             if trade.offset == Offset.OPEN:
                 self.long_td += trade.volume
+            # 平今
             elif trade.offset == Offset.CLOSETODAY:
                 self.short_td -= trade.volume
+            # 平昨
             elif trade.offset == Offset.CLOSEYESTERDAY:
                 self.short_yd -= trade.volume
+            # 平单
             elif trade.offset == Offset.CLOSE:
+                # 上期所的平单就是平昨
                 if trade.exchange == Exchange.SHFE:
                     self.short_yd -= trade.volume
+                # 其他交易所的平单就是平今
                 else:
                     self.short_td -= trade.volume
 
+                    # 如果今天没有那么多单平
                     if self.short_td < 0:
+                        # 平昨,今单为0
                         self.short_yd += self.short_td
                         self.short_td = 0
         else:
@@ -183,7 +227,7 @@ class PositionHolding:
         self.short_pos = self.short_td + self.short_yd
 
     def calculate_frozen(self):
-        """"""
+        """计算委托单"""
         self.long_pos_frozen = 0
         self.long_yd_frozen = 0
         self.long_td_frozen = 0

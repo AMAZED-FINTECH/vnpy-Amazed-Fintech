@@ -31,7 +31,9 @@ class DoubleMaStrategy(CtaTemplate):
             cta_engine, strategy_name, vt_symbol, setting
         )
 
+        # K线容器
         self.bg = BarGenerator(self.on_bar)
+        # 指标生产器
         self.am = ArrayManager()
 
     def on_init(self):
