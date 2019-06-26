@@ -26,7 +26,8 @@ from vnpy.trader.event import (
     EVENT_TICK, 
     EVENT_ORDER, 
     EVENT_TRADE,
-    EVENT_POSITION
+    EVENT_POSITION,
+    EVENT_BAR
 )
 from vnpy.trader.constant import (
     Direction, 
@@ -123,7 +124,7 @@ class CtaEngine(BaseEngine):
         注册事件
         引擎初始化
         """
-        self.init_rqdata()
+        # self.init_rqdata()
         self.load_strategy_class()
         self.load_strategy_setting()
         self.load_strategy_data()
@@ -142,6 +143,7 @@ class CtaEngine(BaseEngine):
         self.event_engine.register(EVENT_ORDER, self.process_order_event)
         self.event_engine.register(EVENT_TRADE, self.process_trade_event)
         self.event_engine.register(EVENT_POSITION, self.process_position_event)
+        self.event_engine.register(EVENT_BAR, self.process_bar_event)
 
     def init_rqdata(self):
         """
@@ -182,6 +184,22 @@ class CtaEngine(BaseEngine):
         for strategy in strategies:
             if strategy.inited:
                 self.call_strategy_func(strategy, strategy.on_tick, tick)
+
+    def process_bar_event(self, event: Event):
+        """处理bar事件，主要是向订阅了bar的策略推送"""
+        bar = event.data
+
+        strategies = self.symbol_strategy_map[bar.vt_symbol]
+        if not strategies:
+            return
+
+        # Bar不检查停止单
+        # self.check_stop_order(bar)
+
+        # 如果有策略，推送至策略的on_bar情况，由分钟bar合成更大级别的bar，进而由策略自己使用
+        for strategy in strategies:
+            if strategy.inited:
+                self.call_strategy_func(strategy, strategy.on_bar, bar)
 
     def process_order_event(self, event: Event):
         """处理order事件"""
@@ -259,6 +277,11 @@ class CtaEngine(BaseEngine):
 
         # 就是把他转换，然后更新，就好了
         self.offset_converter.update_position(position)
+
+    def process_account_event(self, event: Event):
+        """处理账户 事件"""
+        account = event.data
+
 
     def check_stop_order(self, tick: TickData):
         """检查停止单，每次收到tick的时候都要检查"""

@@ -40,6 +40,7 @@ from vnpy.trader.object import (
     SubscribeRequest,
     PositionData,
     HistoryRequest,
+    BarData,
 )
 REST_HOST = "https://www.okex.com"
 WEBSOCKET_HOST = "wss://real.okex.com:10442/ws/v3"
@@ -563,10 +564,11 @@ class OkexfRestApi(RestClient):
         )
 
     def query_history(self, req: HistoryRequest):
-        """这里有待改进，因为Okex推送2000条数据，但是这里默认只推送200条"""
-        data = {
-            "instrument_id": req.symbol,
-            "granularity": INTERVAL_VT2OKEX[req.interval]
+        """TODO 因为Okex推送2000条数据，但是这里默认只推送200条"""
+        params = {
+            "granularity": INTERVAL_VT2OKEX[req.interval],
+            "start": "",
+            "end": "",
         }
 
         path = "/api/futures/v3/instruments/" + req.symbol + "/candles"
@@ -574,16 +576,31 @@ class OkexfRestApi(RestClient):
             "GET",
             path,
             callback=self.on_query_history,
-            data=data,
+            params=params,
             on_error=self.on_error,
             on_failed=self.on_failed,
             extra=req
         )
 
-    def on_query_history(self, data, request):
-        """"""
-        print(data)
-        pass
+    def on_query_history(self, data, req):
+        """调取历史数据"""
+        # OKEX返回的是倒叙的K线,需要重新排列
+        for i in range(len(data)):
+            d = data[-i - 1]
+            dt = utc_to_local(d[0])
+            bar = BarData(
+                symbol=req.extra.symbol,
+                exchange=req.extra.exchange,
+                datetime=dt,
+                interval=req.extra.interval,
+                volume=float(d[5]),
+                open_price=float(d[1]),
+                high_price=float(d[2]),
+                low_price=float(d[3]),
+                close_price=float(d[4]),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_bar(bar)
 
 
 class OkexfWebsocketApi(WebsocketClient):
@@ -606,6 +623,8 @@ class OkexfWebsocketApi(WebsocketClient):
 
         self.callbacks = {}
         self.ticks = {}
+        self.bars = {}
+        self.sub_flags = {}
 
     def connect(
         self,
@@ -631,6 +650,7 @@ class OkexfWebsocketApi(WebsocketClient):
     def subscribe(self, req: SubscribeRequest):
         """
         Subscribe to tick data upate.
+        订阅ticker和bar
         """
         tick = TickData(
             symbol=req.symbol,
@@ -641,15 +661,27 @@ class OkexfWebsocketApi(WebsocketClient):
         )
         self.ticks[req.symbol] = tick
 
+        bar = BarData(
+            symbol=req.symbol,
+            exchange=req.exchange,
+            datetime=copy(datetime.now()),
+            interval=Interval.MINUTE,
+            gateway_name=self.gateway_name,
+        )
+        self.bars[req.symbol] = bar
+        self.sub_flags[req.symbol] = True
+
         channel_ticker = f"futures/ticker:{req.symbol}"
         channel_depth = f"futures/depth5:{req.symbol}"
+        channel_candle = f"futures/candle60s:{req.symbol}"
 
         self.callbacks[channel_ticker] = self.on_ticker
         self.callbacks[channel_depth] = self.on_depth
+        self.callbacks[channel_candle] = self.on_candle
 
         req = {
             "op": "subscribe",
-            "args": [channel_ticker, channel_depth]
+            "args": [channel_ticker, channel_depth, channel_candle]
         }
         self.send_packet(req)
 
@@ -725,6 +757,7 @@ class OkexfWebsocketApi(WebsocketClient):
         self.callbacks["futures/account"] = self.on_account
         self.callbacks["futures/order"] = self.on_order
         self.callbacks["futures/position"] = self.on_position
+        self.callbacks["futures/candle60s"] = self.on_candle
 
         # Subscribe to order update
         channels = []
@@ -794,6 +827,37 @@ class OkexfWebsocketApi(WebsocketClient):
         tick.datetime = utc_to_local(d["timestamp"])
 
         self.gateway.on_tick(copy(tick))
+
+    def on_candle(self, d):
+        """"""
+        symbol = d["instrument_id"]
+        bar = self.bars.get(symbol, None)
+        if not bar:
+            return
+
+        # 由于OKEX每根Bar会推送很多次,不只一次,这里设置成,只有当这根Bar走完之后才推送
+        candle = d["candle"]
+        dt = utc_to_local(candle[0])
+
+        # 如果时间戳和本地不等,推送Bar
+        if dt != bar.datetime:
+            if not self.sub_flags[symbol]:
+                self.gateway.on_bar(copy(bar))
+            else:
+                self.sub_flags[symbol] = False
+            bar.volume = float(candle[5])
+            bar.open_price = float(candle[1])
+            bar.high_price = float(candle[2])
+            bar.low_price = float(candle[3])
+            bar.close_price = float(candle[4])
+            bar.datetime = dt
+        else:
+            bar.volume = float(candle[5])
+            bar.open_price = float(candle[1])
+            bar.high_price = float(candle[2])
+            bar.low_price = float(candle[3])
+            bar.close_price = float(candle[4])
+            bar.datetime = dt
 
     def on_depth(self, d):
         """"""

@@ -82,8 +82,8 @@ OKEX OKEXM OKEXF OKEXS
 添加以下功能，预计可实现第一版本：
 - 1 OKEX的历史KBar调取与推送
 - 2 需要添加EVENT_BAR与gateway父类内添加之后的推送
-- 3 OKEX的自动订阅,添加1分钟K线的自动订阅与合成
-- 4 本地数据库记录,在CtaEngine中process order trade position account 与本地数据库的交互
+- 3 OKEX的自动订阅,添加1分钟K线的自动订阅
+- 4 本地数据库记录,在CtaEngine中process order trade position account on Bar与本地数据库的交互
 
 原因一是对于数字货币,交易所本身就实时推送K线数据,而不像商品期货,没有交易所K线数据
 原因二是对于数字货币,活跃合约的tick数据量太大,不像商品期货,半秒推送一个,数据量这么大,
@@ -93,4 +93,208 @@ OKEX OKEXM OKEXF OKEXS
 - 这样设计之后,由gateway可以发出Bar,推送至事件处理器,推送至register EVENT_BAR的函数，
     原作者设计的一些原理
     
+## 20190626
+- 1 OKEXF的历史KBAR调取与推送，后续可修改为每次都推送2000条bar,当前不需要
+    四个接口都已经修改！
+    这里学习一下:如果要写到路径下的,用params的参数,如果要写到{}的内容中,用data参数
+```buildoutcfg
+        def query_history(self, req: HistoryRequest):
+        """TODO 因为Okex推送2000条数据，但是这里默认只推送200条"""
+
+        params = {
+            "granularity": INTERVAL_VT2OKEX[req.interval],
+            "start": "",
+            "end": "",
+        }
+
+        path = "/api/futures/v3/instruments/" + req.symbol + "/candles"
+        self.add_request(
+            "GET",
+            path,
+            callback=self.on_query_history,
+            data=data,
+            params=params,
+            on_error=self.on_error,
+            on_failed=self.on_failed,
+            extra=req
+        )
+
+    def on_query_history(self, data, req):
+        """调取历史数据"""
+        # OKEX返回的是倒叙的K线,需要重新排列
+        for i in range(len(data)):
+            d = data[-i - 1]
+            dt = utc_to_local(d[0])
+            bar = BarData(
+                symbol=req.extra.symbol,
+                exchange=req.extra.exchange,
+                datetime=dt,
+                interval=req.extra.interval,
+                volume=float(d[5]),
+                open_price=float(d[1]),
+                high_price=float(d[2]),
+                low_price=float(d[3]),
+                close_price=float(d[4]),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_bar(bar)
+
+```
+
+- 2 添加EVENT_BAR与gateway推送
+```buildoutcfg
+    def on_bar(self, bar: BarData):
+        """
+        Bar event push.
+        Bar event of a specific vt_symbol is also pushed.
+        """
+        self.on_event(EVENT_BAR, bar)
+        self.on_event(EVENT_BAR + bar.vt_symbol, bar)
+
+```
+- 3 OKEX的自动订阅,添加1分钟K线的自动订阅
+###### 修改subscribe_topic
+```buildoutcfg
+    def subscribe_topic(self):
+        """
+        Subscribe to all private topics.
+        """
+        self.callbacks["futures/ticker"] = self.on_ticker
+        self.callbacks["futures/depth5"] = self.on_depth
+        self.callbacks["futures/account"] = self.on_account
+        self.callbacks["futures/order"] = self.on_order
+        self.callbacks["futures/position"] = self.on_position
+        self.callbacks["futures/candle60s"] = self.on_candle
+
+        # Subscribe to order update
+        channels = []
+        for instrument_id in instruments:
+            channel = f"futures/order:{instrument_id}"
+            channels.append(channel)
+
+        req = {
+            "op": "subscribe",
+            "args": channels
+        }
+        self.send_packet(req)
+
+        # Subscribe to account update
+        channels = []
+        for currency in currencies:
+            if currency != "USD":
+                channel = f"futures/account:{currency}"
+                channels.append(channel)
+
+        req = {
+            "op": "subscribe",
+            "args": channels
+        }
+        self.send_packet(req)
+
+        # Subscribe to position update
+        channels = []
+        for instrument_id in instruments:
+            channel = f"futures/position:{instrument_id}"
+            channels.append(channel)
+
+        req = {
+            "op": "subscribe",
+            "args": channels
+        }
+        self.send_packet(req)
+
+        # 这里添加gateway的文件，以保证能够一开始就订阅，这里算是改动比较大的了
+        # 为了减少服务器压力，这里只需要订阅需要的合约，也就是季度交割合约
+        for futures in sub_instruments:
+            req = SubscribeRequest(symbol=futures, exchange=Exchange.OKEX)
+            self.subscribe(req)
+
+```
+###### 修改subscribe
+```buildoutcfg
+    def subscribe(self, req: SubscribeRequest):
+        """
+        Subscribe to tick data upate.
+        订阅ticker和bar
+        """
+        tick = TickData(
+            symbol=req.symbol,
+            exchange=req.exchange,
+            name=req.symbol,
+            datetime=datetime.now(),
+            gateway_name=self.gateway_name,
+        )
+        self.ticks[req.symbol] = tick
+
+        bar = BarData(
+            symbol=req.symbol,
+            exchange=req.exchange,
+            datetime=copy(datetime.now()),
+            interval=Interval.MINUTE,
+            gateway_name=self.gateway_name,
+        )
+        self.bars[req.symbol] = bar
+        self.sub_flags[req.symbol] = True
+
+        channel_ticker = f"futures/ticker:{req.symbol}"
+        channel_depth = f"futures/depth5:{req.symbol}"
+        channel_candle = f"futures/candle60s:{req.symbol}"
+
+        self.callbacks[channel_ticker] = self.on_ticker
+        self.callbacks[channel_depth] = self.on_depth
+        self.callbacks[channel_candle] = self.on_candle
+
+        req = {
+            "op": "subscribe",
+            "args": [channel_ticker, channel_depth, channel_candle]
+        }
+        self.send_packet(req)
+```
+###### 添加on_candle,细节,考虑第一次连接推送的Bar.
+```buildoutcfg
+    def on_candle(self, d):
+        """"""
+        symbol = d["instrument_id"]
+        bar = self.bars.get(symbol, None)
+        if not bar:
+            return
+
+        # 由于OKEX每根Bar会推送很多次,不只一次,这里设置成,只有当这根Bar走完之后才推送
+        candle = d["candle"]
+        dt = utc_to_local(candle[0])
+
+        # 如果时间戳和本地不等,推送Bar
+        if dt != bar.datetime:
+            if not self.sub_flags[symbol]:
+                self.gateway.on_bar(copy(bar))
+                print(bar.__dict__)
+            else:
+                self.sub_flags[symbol] = False
+            bar.volume = float(candle[5])
+            bar.open_price = float(candle[1])
+            bar.high_price = float(candle[2])
+            bar.low_price = float(candle[3])
+            bar.close_price = float(candle[4])
+            bar.datetime = dt
+        else:
+            bar.volume = float(candle[5])
+            bar.open_price = float(candle[1])
+            bar.high_price = float(candle[2])
+            bar.low_price = float(candle[3])
+            bar.close_price = float(candle[4])
+            bar.datetime = dt
+
+```
+###### 修改cta_engine
+- 1 添加EVENT_BAR
+- 2 将原load_bar废除,完全重写,每个gateway有其自己的query_history的方法
+- 3 注册事件中多了一个process_bar,要仿照on_tick来写
+- 4 注册事件中多了一个process_account,插入数据库用
+- 5 向CtaEngine中加入MongoDB的插入,每个插入的
+- init_engine 中不启动米匡,没有账号启动干什么
+- CtaEngine里面添加accountid,由于数字货币市场的机制,使得其并没有传统的accountid的概念,
+因此,很有必要在其中添加一个accountid作为识别（当前vnpy设计均为单账户）
+- 添加accountid是因为在插入数据库的时候,数据库的名称就是accountid的名称,documents包括：
+order trade position account 在测试策略的时候,还需要记录Bar或Tick数据
+
 

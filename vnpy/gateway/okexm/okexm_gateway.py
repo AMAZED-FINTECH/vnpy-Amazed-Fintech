@@ -37,6 +37,7 @@ from vnpy.trader.object import (
     CancelRequest,
     SubscribeRequest,
     HistoryRequest,
+    BarData,
 )
 
 REST_HOST = "https://www.okex.com"
@@ -399,7 +400,8 @@ class OkexmRestApi(RestClient):
                 frozen=float(account_data[currencyid]["hold"]),
                 gateway_name=self.gateway_name
             )
-            self.gateway.on_account(account)
+            if float(account_data[currencyid]["balance"]) > 0:
+                self.gateway.on_account(account)
 
             currency = account_data["instrument_id"].split("-")[1]
             currencyid = "currency:" + currency
@@ -409,7 +411,8 @@ class OkexmRestApi(RestClient):
                 frozen=float(account_data[currencyid]["hold"]),
                 gateway_name=self.gateway_name
             )
-            self.gateway.on_account(account)
+            if float(account_data[currencyid]["balance"]) > 0:
+                self.gateway.on_account(account)
 
         self.gateway.write_log("账户资金查询成功")
 
@@ -525,9 +528,10 @@ class OkexmRestApi(RestClient):
 
     def query_history(self, req: HistoryRequest):
         """这里有待改进，因为Okex推送2000条数据，但是这里默认只推送200条"""
-        data = {
-            "instrument_id": req.symbol,
-            "granularity": INTERVAL_VT2OKEX[req.interval]
+        params = {
+            "granularity": INTERVAL_VT2OKEX[req.interval],
+            "start": "",
+            "end": "",
         }
 
         path = "/api/spot/v3/instruments/" + req.symbol + "/candles"
@@ -535,16 +539,31 @@ class OkexmRestApi(RestClient):
             "GET",
             path,
             callback=self.on_query_history,
-            data=data,
+            params=params,
             on_error=self.on_error,
             on_failed=self.on_failed,
             extra=req
         )
 
-    def on_query_history(self, data, request):
+    def on_query_history(self, data, req):
         """"""
-        print(data)
-        pass
+        # OKEX返回的是倒叙的K线,需要重新排列
+        for i in range(len(data)):
+            d = data[-i - 1]
+            dt = utc_to_local(d[0])
+            bar = BarData(
+                symbol=req.extra.symbol,
+                exchange=req.extra.exchange,
+                datetime=dt,
+                interval=req.extra.interval,
+                volume=float(d[5]),
+                open_price=float(d[1]),
+                high_price=float(d[2]),
+                low_price=float(d[3]),
+                close_price=float(d[4]),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_bar(bar)
 
 
 class OkexmWebsocketApi(WebsocketClient):

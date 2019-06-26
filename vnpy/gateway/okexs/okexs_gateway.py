@@ -40,6 +40,7 @@ from vnpy.trader.object import (
     SubscribeRequest,
     PositionData,
     HistoryRequest,
+    BarData,
 )
 REST_HOST = "https://www.okex.com"
 WEBSOCKET_HOST = "wss://real.okex.com:10442/ws/v3"
@@ -169,13 +170,44 @@ class OkexsGateway(BaseGateway):
         self.orders[order.orderid] = order
         super().on_order(order)
 
-    def get_order(self, orderid: str):
-        """"""
-        return self.orders.get(orderid, None)
-
     def query_history(self, req: HistoryRequest):
-        """"""
-        self.rest_api.query_history(req)
+        """TODO 因为Okex推送2000条数据，但是这里默认只推送200条"""
+        data = {
+            "instrument_id": req.symbol,
+            "granularity": INTERVAL_VT2OKEX[req.interval]
+        }
+
+        path = "/api/futures/v3/instruments/" + req.symbol + "/candles?granularity=" + data[
+            "granularity"] + "&start=&end="
+        self.add_request(
+            "GET",
+            path,
+            callback=self.on_query_history,
+            data=data,
+            on_error=self.on_error,
+            on_failed=self.on_failed,
+            extra=req
+        )
+
+    def on_query_history(self, data, req):
+        """调取历史数据"""
+        # OKEX返回的是倒叙的K线,需要重新排列
+        for i in range(len(data)):
+            d = data[-i - 1]
+            dt = utc_to_local(d[0])
+            bar = BarData(
+                symbol=req.extra.symbol,
+                exchange=req.extra.exchange,
+                datetime=dt,
+                interval=req.extra.interval,
+                volume=float(d[5]),
+                open_price=float(d[1]),
+                high_price=float(d[2]),
+                low_price=float(d[3]),
+                close_price=float(d[4]),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_bar(bar)
 
 
 class OkexsRestApi(RestClient):
@@ -562,10 +594,11 @@ class OkexsRestApi(RestClient):
         )
 
     def query_history(self, req: HistoryRequest):
-        """这里有待改进，因为Okex推送2000条数据，但是这里默认只推送200条"""
-        data = {
-            "instrument_id": req.symbol,
-            "granularity": INTERVAL_VT2OKEX[req.interval]
+        """TODO 因为Okex推送2000条数据，但是这里默认只推送200条"""
+        params = {
+            "granularity": INTERVAL_VT2OKEX[req.interval],
+            "start": "",
+            "end": "",
         }
 
         path = "/api/swap/v3/instruments/" + req.symbol + "/candles"
@@ -573,16 +606,31 @@ class OkexsRestApi(RestClient):
             "GET",
             path,
             callback=self.on_query_history,
-            data=data,
+            params=params,
             on_error=self.on_error,
             on_failed=self.on_failed,
             extra=req
         )
 
-    def on_query_history(self, data, request):
-        """"""
-        print(data)
-        pass
+    def on_query_history(self, data, req):
+        """调取历史数据"""
+        # OKEX返回的是倒叙的K线,需要重新排列
+        for i in range(len(data)):
+            d = data[-i - 1]
+            dt = utc_to_local(d[0])
+            bar = BarData(
+                symbol=req.extra.symbol,
+                exchange=req.extra.exchange,
+                datetime=dt,
+                interval=req.extra.interval,
+                volume=float(d[5]),
+                open_price=float(d[1]),
+                high_price=float(d[2]),
+                low_price=float(d[3]),
+                close_price=float(d[4]),
+                gateway_name=self.gateway_name
+            )
+            self.gateway.on_bar(bar)
 
 
 class OkexsWebsocketApi(WebsocketClient):

@@ -15,6 +15,7 @@ from .event import (
     EVENT_ACCOUNT,
     EVENT_CONTRACT,
     EVENT_LOG,
+    EVENT_BAR,
 )
 from .object import (
     TickData,
@@ -27,7 +28,8 @@ from .object import (
     OrderRequest,
     CancelRequest,
     SubscribeRequest,
-    HistoryRequest
+    HistoryRequest,
+    BarData,
 )
 
 
@@ -95,6 +97,14 @@ class BaseGateway(ABC):
         """
         self.on_event(EVENT_TICK, tick)
         self.on_event(EVENT_TICK + tick.vt_symbol, tick)
+
+    def on_bar(self, bar: BarData):
+        """
+        Bar event push.
+        Bar event of a specific vt_symbol is also pushed.
+        """
+        self.on_event(EVENT_BAR, bar)
+        self.on_event(EVENT_BAR + bar.vt_symbol, bar)
 
     def on_trade(self, trade: TradeData):
         """
