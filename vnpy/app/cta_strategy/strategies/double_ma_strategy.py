@@ -8,6 +8,15 @@ from vnpy.app.cta_strategy import (
     BarGenerator,
     ArrayManager,
 )
+from vnpy.trader.object import (
+    HistoryRequest,
+)
+from vnpy.trader.constant import (
+    Exchange,
+    Interval,
+)
+
+from datetime import datetime
 
 
 class DoubleMaStrategy(CtaTemplate):
@@ -31,17 +40,34 @@ class DoubleMaStrategy(CtaTemplate):
             cta_engine, strategy_name, vt_symbol, setting
         )
 
-        # K线容器
-        self.bg = BarGenerator(self.on_bar)
-        # 指标生产器
-        self.am = ArrayManager()
+        self.bg5 = BarGenerator(self.on_bar, 5, self.on_5min_bar)
+        self.am5 = ArrayManager()
+
+        self.bg30 = BarGenerator(self.on_bar, 30, self.on_30min_bar)
+        self.am30 = ArrayManager()
 
     def on_init(self):
         """
         Callback when strategy is inited.
         """
         self.write_log("策略初始化")
-        self.load_bar(10)
+        # 这里在实盘的时候,由每个策略在init的时候,查询历史数据,不在本地查询,对于数字货币,直接用交易所的数据
+
+        req = HistoryRequest(symbol="BTC-USD-190927",
+                             exchange=Exchange.OKEXF,
+                             start=datetime.now(),
+                             interval=Interval.MINUTE30)
+
+        okexgateway = self.cta_engine.main_engine.get_gateway("OKEXF")
+        okexgateway.query_history(req)
+
+        req = HistoryRequest(symbol="BTC-USD-190927",
+                             exchange=Exchange.OKEXF,
+                             start=datetime.now(),
+                             interval=Interval.MINUTE)
+
+        okexgateway = self.cta_engine.main_engine.get_gateway("OKEXF")
+        okexgateway.query_history(req)
 
     def on_start(self):
         """
@@ -61,18 +87,25 @@ class DoubleMaStrategy(CtaTemplate):
     def on_tick(self, tick: TickData):
         """
         Callback of new tick data update.
+        数字货币交易,tick用来做风控事件,止损,止盈等.
         """
-        self.bg.update_tick(tick)
+        # print(tick.__dict__)
+        # self.bg.update_tick(tick)
+        pass
 
     def on_bar(self, bar: BarData):
         """
         Callback of new bar data update.
         """
-
+        self.bg.update_bar(bar)
+        # print(bar.__dict__)
+        # self.ding.send_text(str(bar.__dict__))
         am = self.am
         am.update_bar(bar)
         if not am.inited:
             return
+
+        return
 
         fast_ma = am.sma(self.fast_window, array=True)
         self.fast_ma0 = fast_ma[-1]
@@ -100,6 +133,12 @@ class DoubleMaStrategy(CtaTemplate):
                 self.short(bar.close_price, 1)
 
         self.put_event()
+
+    def on_5min_bar(self, bar: BarData):
+        pass
+
+    def on_30min_bar(self, bar: BarData):
+        pass
 
     def on_order(self, order: OrderData):
         """

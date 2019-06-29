@@ -284,8 +284,10 @@ class LogEngine(BaseEngine):
         if not SETTINGS["log.active"]:
             return
 
+        # 测试环境下,setting要修改,后期变成CRITICAL
         self.level = SETTINGS["log.level"]
 
+        # 获取logger
         self.logger = logging.getLogger("VN Trader")
         self.logger.setLevel(self.level)
 

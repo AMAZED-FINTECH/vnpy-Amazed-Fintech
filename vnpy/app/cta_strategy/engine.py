@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any, Callable
 from datetime import datetime, timedelta
 from threading import Thread
-from queue import Queue
+from queue import Queue, Empty
 from copy import copy
+import time
 
 from vnpy.event import Event, EventEngine
 from vnpy.trader.engine import BaseEngine, MainEngine
@@ -53,7 +54,7 @@ from .base import (
 )
 from .template import CtaTemplate
 from .converter import OffsetConverter
-
+from .DBMongo import dbMongo
 
 STOP_STATUS_MAP = {
     Status.SUBMITTING: StopOrderStatus.WAITING,
@@ -73,6 +74,9 @@ class CtaEngine(BaseEngine):
     # 配置文件
     setting_filename = "cta_strategy_setting.json"
     data_filename = "cta_strategy_data.json"
+    setting_dbname = "cta_strategy_setting"
+    data_dbname = "cta_strategy_data"
+    account_id = "mytest"
 
     def __init__(self, main_engine: MainEngine, event_engine: EventEngine):
         """初始化，与其他模块一样，提供与主引擎交互的方法"""
@@ -115,6 +119,13 @@ class CtaEngine(BaseEngine):
         # 转换
         self.offset_converter = OffsetConverter(self.main_engine)
 
+        # 自主添加
+        # DB 数据库
+        self.db_mongo = dbMongo()
+        self.db_thread = None
+        self.db_queue = Queue()
+        self.db_active = False
+
     def init_engine(self):
         """
         初始化引擎，初始化米匡
@@ -124,6 +135,9 @@ class CtaEngine(BaseEngine):
         注册事件
         引擎初始化
         """
+        # 开启策略线程
+        self.db_start()
+        
         # self.init_rqdata()
         self.load_strategy_class()
         self.load_strategy_setting()
@@ -201,9 +215,29 @@ class CtaEngine(BaseEngine):
             if strategy.inited:
                 self.call_strategy_func(strategy, strategy.on_bar, bar)
 
+                # =================================
+                # 这里在测试的时候,写入数据库和log两种形式
+
+                # 实盘中,只写入数据库中
+                d = bar.__dict__
+                d["account_id"] = self.account_id
+                d["strategy_name"] = strategy.strategy_name
+                d["exchange"] = d["exchange"].value
+                d["interval"] = d["interval"].value
+                flt = {
+                    "vt_symbol": d["vt_symbol"],
+                    "interval": d["interval"],
+                    "datetime": d["datetime"],
+                       }
+                self.db_queue.put(["update", self.account_id, "Bar_Data", d, flt])
+
+                self.write_log("Bar_Data:" + str(d), strategy)
+                # =================================
+
     def process_order_event(self, event: Event):
         """处理order事件"""
         order = event.data
+        d = order.__dict__
 
         # 先转换order
         self.offset_converter.update_order(order)
@@ -211,7 +245,30 @@ class CtaEngine(BaseEngine):
         # 先根据订单号返回对应的策略
         strategy = self.orderid_strategy_map.get(order.vt_orderid, None)
         if not strategy:
+            self.write_log("非程序化策略订单:" + str(d))
             return
+
+        # =================================
+        # 这里在测试的时候,写入数据库和log两种形式
+
+        # 实盘中,只写入数据库中
+        d["account_id"] = self.account_id
+        d["strategy_name"] = strategy.strategy_name
+        d["exchange"] = d["exchange"].value
+        d["type"] = d["type"].value
+        d["direction"] = d["direction"].value
+        d["offset"] = d["offset"].value
+        d["status"] = d["status"].value
+
+        flt = {
+            "vt_orderid": d["vt_orderid"],
+            "volume": d["volume"],
+            "status": d["status"],
+        }
+        self.db_queue.put(["update", self.account_id, "Order_Data", d, flt])
+
+        self.write_log("Order_Data:" + str(d), strategy)
+        # =================================
 
         # Remove vt_orderid if order is no longer active.
         # 如果order_id已经成交了或者撤销了，删除这个订单。
@@ -244,8 +301,9 @@ class CtaEngine(BaseEngine):
         """处理成交事件"""
         trade = event.data
 
+        d = trade.__dict__
         # Filter duplicate trade push
-        # 如果推送过来的成交，是手工下单或者其他的单子，就不管。
+        # 如果推送过来的成交，不是此次运行期间的单子
         if trade.vt_tradeid in self.vt_tradeids:
             return
         # 将成交的订单添加至vt_tradeids 添加至本引擎中去
@@ -257,13 +315,37 @@ class CtaEngine(BaseEngine):
         # 获取这个成交对应的策略
         strategy = self.orderid_strategy_map.get(trade.vt_orderid, None)
         if not strategy:
+            self.write_log("非程序化策略成交:" + str(d))
             return
+
+        # =================================
+        # 这里在测试的时候,写入数据库和log两种形式
+
+        # 实盘中,只写入数据库中
+        d["account_id"] = self.account_id
+        d["strategy_name"] = strategy.strategy_name
+        d["exchange"] = d["exchange"].value
+        d["direction"] = d["direction"].value
+        d["type"] = d["type"].value
+        d["offset"] = d["offset"].value
+
+        flt = {
+            "vt_orderid": d["vt_orderid"],
+            "vt_tradeid": d["vt_tradeid"],
+        }
+        self.db_queue.put(["update", self.account_id, "Trade_Data", d, flt])
+
+        self.write_log("Trade_Data:" + str(d), strategy)
+        # =================================
 
         # 如果是多单，计算持仓时符号为正，如果是空单，计算持仓时符号为负
         if trade.direction == Direction.LONG:
             strategy.pos += trade.volume
         else:
             strategy.pos -= trade.volume
+
+        # 仓位variable每次更新完都要在本地更新
+        self.sync_strategy_data(strategy)
 
         # 调用策略函数
         self.call_strategy_func(strategy, strategy.on_trade, trade)
@@ -275,13 +357,42 @@ class CtaEngine(BaseEngine):
         """处理仓位 事件"""
         position = event.data
 
+        d = position.__dict__
+
         # 就是把他转换，然后更新，就好了
         self.offset_converter.update_position(position)
+
+        # =================================
+        # 这里在测试的时候,写入数据库和log两种形式
+
+        # 实盘中,只写入数据库中
+        d["account_id"] = self.account_id
+        d["exchange"] = d["exchange"].value
+        d["direction"] = d["direction"].value
+        d["datetime"] = copy(datetime.now())
+
+        self.db_queue.put(["insert", self.account_id, "Position_Data", d])
+
+        self.write_log("Position_Data:" + str(d))
+        # =================================
 
     def process_account_event(self, event: Event):
         """处理账户 事件"""
         account = event.data
 
+        d = account.__dict__
+
+        # =================================
+        # 这里在测试的时候,写入数据库和log两种形式
+
+        # 实盘中,只写入数据库中
+        d["account_id"] = self.account_id
+        d["datetime"] = copy(datetime.now())
+
+        self.db_queue.put(["insert", self.account_id, "Account_Data", d])
+
+        self.write_log("Account_Data:" + str(d))
+        # =================================
 
     def check_stop_order(self, tick: TickData):
         """检查停止单，每次收到tick的时候都要检查"""
@@ -682,6 +793,9 @@ class CtaEngine(BaseEngine):
         strategy_class = self.classes[class_name]
 
         # 创建策略,本地保存,用唯一的策略名称来保存
+        # 创建一个策略,用一个具体实例,一个策略名称,vt_symbol,setting来创建
+        # setting更新的是params也就是策略参数,不是策略的variables
+        # 初始化的时候,就添加策略的params
         strategy = strategy_class(self, strategy_name, vt_symbol, setting)
         self.strategies[strategy_name] = strategy
 
@@ -692,6 +806,7 @@ class CtaEngine(BaseEngine):
 
         # Update to setting file.
         # 更新策略配置
+        # 添加classname进setting和vt_symbol
         self.update_strategy_setting(strategy_name, setting)
 
         # 加入策略事件
@@ -730,17 +845,21 @@ class CtaEngine(BaseEngine):
 
             # Restore strategy data(variables)
             # 策略数据,获取策略数据
+            # 这里的data指的是策略的variables
             data = self.strategy_data.get(strategy_name, None)
             if data:
                 # 策略的variables
                 for name in strategy.variables:
                     value = data.get(name, None)
                     if value:
-                        # 设置策略的名称,值
+                        # 设置策略,名称,值 = strategy.name = value
                         setattr(strategy, name, value)
 
             # Subscribe market data
             # 初始化,订阅合约
+            # 由于OKEX Futures的本地机制,所有的订阅,不在这里写,在gateway里面写
+
+            """
             contract = self.main_engine.get_contract(strategy.vt_symbol)
             if contract:
                 req = SubscribeRequest(
@@ -748,6 +867,7 @@ class CtaEngine(BaseEngine):
                 self.main_engine.subscribe(req, contract.gateway_name)
             else:
                 self.write_log(f"行情订阅失败，找不到合约{strategy.vt_symbol}", strategy)
+            """
 
             # Put event to update init completed status.
             # 设置策略初始化为真
@@ -755,7 +875,7 @@ class CtaEngine(BaseEngine):
             self.put_strategy_event(strategy)
             self.write_log(f"{strategy_name}初始化完成")
 
-        # 这里先设置初始化线程为None
+        # 由于初始化时间较长,因此每个设置完成之后,都要把线程关闭,以免浪费内存资源,否则策略加载过多,造成资源浪费
         self.init_thread = None
 
     def start_strategy(self, strategy_name: str):
@@ -857,7 +977,8 @@ class CtaEngine(BaseEngine):
     def load_strategy_class(self):
         """
         Load strategy class from source code.
-        动态载入策略类
+        动态载入策略类,可以从两个地方载入:
+
         """
         # 这里提供两个路径,实盘中,可以存在一个路径,也可以存在另一个路径,都可以
         path1 = Path(__file__).parent.joinpath("strategies")
@@ -870,11 +991,16 @@ class CtaEngine(BaseEngine):
     def load_strategy_class_from_folder(self, path: Path, module_name: str = ""):
         """
         Load strategy class from certain folder.
+        从文件夹载入策略
         所有带.py结尾的都是正常策略
         """
+        # dirpath是文件的路径,dirnames不知道,filenames是文件内所有的策略名称
         for dirpath, dirnames, filenames in os.walk(str(path)):
+            # 要提取的是策略
             for filename in filenames:
+                # 如果以.py为结尾,这里有个问题,就是__init__.py也是以这个为结尾,不严谨,尽管在下面的过程中排除掉
                 if filename.endswith(".py"):
+                    # 策略名称,也就是.py的文件名称
                     strategy_module_name = ".".join(
                         [module_name, filename.replace(".py", "")])
                     self.load_strategy_class_from_module(strategy_module_name)
@@ -887,12 +1013,17 @@ class CtaEngine(BaseEngine):
         try:
             module = importlib.import_module(module_name)
 
+            # 取这个模块内的所有东西
             for name in dir(module):
+                # 获取模块的值
                 value = getattr(module, name)
-                # 1.是个实例
+                # 1.是个type类型
                 # 2.是CtaTemplate的子类
                 # 3.不是CtaTemplate
-                if (isinstance(value, type) and issubclass(value, CtaTemplate) and value is not CtaTemplate):
+                if (isinstance(value, type) and
+                        issubclass(value, CtaTemplate) and
+                        value is not CtaTemplate):
+                    # 每个值得名称就是他本身,比如AtrRsiStrategy
                     self.classes[value.__name__] = value
         except:  # noqa
             msg = f"策略文件{module_name}加载失败，触发异常：\n{traceback.format_exc()}"
@@ -901,20 +1032,31 @@ class CtaEngine(BaseEngine):
     def load_strategy_data(self):
         """
         Load strategy data from json file.
+        策略数据,策略的数据指的是什么
         """
-        self.strategy_data = load_json(self.data_filename)
+        results = self.db_mongo.dbQuery(self.account_id, self.data_dbname, {})
+        for result in results:
+            self.strategy_data[result["strategy_name"]] = result["data"]
+        # self.strategy_data = load_json(self.data_filename)
 
     def sync_strategy_data(self, strategy: CtaTemplate):
         """
         Sync strategy data into json file.
-        动态策略data
+        同步策略数据到本地,I/O操作,要小心一点,每个成交都要修改
         """
         data = strategy.get_variables()
         data.pop("inited")      # Strategy status (inited, trading) should not be synced.
         data.pop("trading")
 
         self.strategy_data[strategy.strategy_name] = data
-        save_json(self.data_filename, self.strategy_data)
+        d = {
+            "strategy_name": strategy.strategy_name,
+            "data": data,
+        }
+        flt = {"strategy_name": strategy.strategy_name}
+        self.db_queue.put(["update", self.account_id, self.data_dbname, d, flt, True])
+
+        #save_json(self.data_filename, self.strategy_data)
 
     def get_all_strategy_class_names(self):
         """
@@ -969,17 +1111,34 @@ class CtaEngine(BaseEngine):
         """
         Load setting file.
         载入策略配置文件
+        这里修改很大,变成与数据库交互
+        """
+        results = self.db_mongo.dbQuery(self.account_id, self.setting_dbname, {})
+        for result in results:
+            self.add_strategy(
+                result["class_name"],
+                result["strategy_name"],
+                result["vt_symbol"],
+                result["setting"]
+            )
+
         """
         self.strategy_setting = load_json(self.setting_filename)
 
         # 策略配置文件,由于策略名称统一,因此策略配置统一
         for strategy_name, strategy_config in self.strategy_setting.items():
+            # 添加策略
+            # 策略名称唯一
+            # 添加类名称
+            # 添加vt_symbol
+            # 添加setting配置
             self.add_strategy(
                 strategy_config["class_name"], 
                 strategy_name,
                 strategy_config["vt_symbol"], 
                 strategy_config["setting"]
             )
+        """
 
     def update_strategy_setting(self, strategy_name: str, setting: dict):
         """
@@ -993,8 +1152,22 @@ class CtaEngine(BaseEngine):
             "vt_symbol": strategy.vt_symbol,
             "setting": setting,
         }
+        d = {
+            "strategy_name": strategy_name,
+            "class_name": strategy.__class__.__name__,
+            "vt_symbol": strategy.vt_symbol,
+            "setting": setting,
+        }
+        flt = {
+            "strategy_name": strategy_name,
+            "class_name": strategy.__class__.__name__,
+        }
+        self.db_queue.put(["update", self.account_id, self.setting_dbname, d, flt, True])
+        # self.db_mongo.dbUpdate(self.account_id, self.setting_dbname, d, flt, True)
+        """
         # 更新完策略配置之后,要save_json到配置文件内
         save_json(self.setting_filename, self.strategy_setting)
+        """
 
     def remove_strategy_setting(self, strategy_name: str):
         """
@@ -1006,7 +1179,14 @@ class CtaEngine(BaseEngine):
 
         # 删除策略配置,同样也需要save_json
         self.strategy_setting.pop(strategy_name)
-        save_json(self.setting_filename, self.strategy_setting)
+        flt = {
+            "strategy_name": strategy_name
+        }
+        self.db_mongo.dbDelete(self.account_id, self.setting_dbname, flt)
+
+        """
+        #save_json(self.setting_filename, self.strategy_setting)
+        """
 
     def put_stop_order_event(self, stop_order: StopOrder):
         """
@@ -1030,7 +1210,7 @@ class CtaEngine(BaseEngine):
         Create cta engine log event.
         """
         if strategy:
-            msg = f"{strategy.strategy_name}: {msg}"
+            msg = f"{strategy.strategy_name} -> {msg}"
 
         log = LogData(msg=msg, gateway_name="CtaStrategy")
         event = Event(type=EVENT_CTA_LOG, data=log)
@@ -1048,3 +1228,36 @@ class CtaEngine(BaseEngine):
             subject = "CTA策略引擎"
 
         self.main_engine.send_email(subject, msg)
+
+    def db_start(self):
+        """开启DB的线程"""
+        self.db_active = True
+        self.db_thread = Thread(target=self.db_run)
+        self.db_thread.start()
+
+    def db_stop(self):
+        self.db_active = False
+
+    def db_run(self):
+        """数据库线程的运行"""
+        while self.db_active:
+            try:
+                task = self.db_queue.get(timeout=1)
+                if task[0] == "update":
+                    dbName = task[1]
+                    collectionName = task[2]
+                    d = task[3]
+                    flt = task[4]
+                    self.db_mongo.dbUpdate(dbName, collectionName, d, flt, True)
+                elif task[0] == "insert":
+                    dbName = task[1]
+                    collectionName = task[2]
+                    d = task[3]
+                    self.db_mongo.dbInsert(dbName, collectionName, d)
+                # task_type, data = task
+
+            except Empty:
+                time.sleep(1)
+
+            except Exception as e:
+                self.write_log(str(e))

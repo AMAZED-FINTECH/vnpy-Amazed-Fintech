@@ -46,10 +46,13 @@ REST_HOST = "https://www.okex.com"
 WEBSOCKET_HOST = "wss://real.okex.com:10442/ws/v3"
 
 STATUS_OKEXF2VT = {
+    "-1": Status.CANCELLED,
     "0": Status.NOTTRADED,
     "1": Status.PARTTRADED,
     "2": Status.ALLTRADED,
-    "-1": Status.CANCELLED,
+    "3": Status.NOTTRADED,
+    "6": Status.PARTTRADED,
+    "7": Status.COMPLTE,
 }
 
 ORDERTYPE_OKEXF2VT = {
@@ -106,7 +109,7 @@ class OkexfGateway(BaseGateway):
         "代理端口": "",
     }
 
-    exchanges = [Exchange.OKEX]
+    exchanges = [Exchange.OKEXF]
 
     def __init__(self, event_engine):
         """Constructor"""
@@ -377,7 +380,7 @@ class OkexfRestApi(RestClient):
             symbol = instrument_data["instrument_id"]
             contract = ContractData(
                 symbol=symbol,
-                exchange=Exchange.OKEX,
+                exchange=Exchange.OKEXF,
                 name=symbol,
                 product=Product.FUTURES,
                 size=int(instrument_data["trade_increment"]),
@@ -424,7 +427,7 @@ class OkexfRestApi(RestClient):
             if float(pos_data["long_qty"]) > 0:
                 pos = PositionData(
                     symbol=pos_data["instrument_id"].upper(),
-                    exchange=Exchange.OKEX,
+                    exchange=Exchange.OKEXF,
                     direction=Direction.LONG,
                     volume=pos_data["long_qty"],
                     frozen=float(pos_data["long_qty"]) - float(pos_data["long_avail_qty"]),
@@ -437,7 +440,7 @@ class OkexfRestApi(RestClient):
             if float(pos_data["short_qty"]) > 0:
                 pos = PositionData(
                     symbol=pos_data["instrument_id"],
-                    exchange=Exchange.OKEX,
+                    exchange=Exchange.OKEXF,
                     direction=Direction.SHORT,
                     volume=pos_data["short_qty"],
                     frozen=float(pos_data["short_qty"]) - float(pos_data["short_avail_qty"]),
@@ -454,7 +457,7 @@ class OkexfRestApi(RestClient):
             offset, direction = TYPE_OKEXF2VT[order_data["type"]]
             order = OrderData(
                 symbol=order_data["instrument_id"],
-                exchange=Exchange.OKEX,
+                exchange=Exchange.OKEXF,
                 type=ORDERTYPE_OKEXF2VT[order_data["order_type"]],
                 orderid=order_data["client_oid"],
                 direction=direction,
@@ -799,7 +802,7 @@ class OkexfWebsocketApi(WebsocketClient):
         # 这里添加gateway的文件，以保证能够一开始就订阅，这里算是改动比较大的了
         # 为了减少服务器压力，这里只需要订阅需要的合约，也就是季度交割合约
         for futures in sub_instruments:
-            req = SubscribeRequest(symbol=futures, exchange=Exchange.OKEX)
+            req = SubscribeRequest(symbol=futures, exchange=Exchange.OKEXF)
             self.subscribe(req)
 
     def on_login(self, data: dict):
@@ -887,7 +890,7 @@ class OkexfWebsocketApi(WebsocketClient):
         offset, direction = TYPE_OKEXF2VT[d["type"]]
         order = OrderData(
             symbol=d["instrument_id"],
-            exchange=Exchange.OKEX,
+            exchange=Exchange.OKEXF,
             type=ORDERTYPE_OKEXF2VT[d["order_type"]],
             orderid=d["client_oid"],
             offset=offset,
@@ -938,7 +941,7 @@ class OkexfWebsocketApi(WebsocketClient):
         """"""
         pos = PositionData(
             symbol=d["instrument_id"],
-            exchange=Exchange.OKEX,
+            exchange=Exchange.OKEXF,
             direction=Direction.LONG,
             volume=d["long_qty"],
             frozen=float(d["long_qty"]) - float(d["long_avail_qty"]),
@@ -950,7 +953,7 @@ class OkexfWebsocketApi(WebsocketClient):
 
         pos = PositionData(
             symbol=d["instrument_id"],
-            exchange=Exchange.OKEX,
+            exchange=Exchange.OKEXF,
             direction=Direction.SHORT,
             volume=d["short_qty"],
             frozen=float(d["short_qty"]) - float(d["short_avail_qty"]),

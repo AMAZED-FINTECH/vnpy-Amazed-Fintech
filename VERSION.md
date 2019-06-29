@@ -297,4 +297,31 @@ OKEX OKEXM OKEXF OKEXS
 - 添加accountid是因为在插入数据库的时候,数据库的名称就是accountid的名称,documents包括：
 order trade position account 在测试策略的时候,还需要记录Bar或Tick数据
 
+## 20190627
+- 备忘 不同的gateway->不同的交易所名称->最好不要出现同一个交易所名称这种情况（增加OKEXF的交易所）
+- 主要原因就是vnpy里面的bar的vt_symbol包括tick的vt_symbol是用Exchange.value来命名
+- 备忘 OKEX的合成K线的方式不明,但是确定的是: OKEX的分钟KBar和本地tick合成的分钟KBar不一样
+- 因此要想实盘和回测更贴近,必须用交易所的分钟K线,由于交易所的分钟K线合成5分钟,30分钟,1小时等采取左闭右开的模式，可以本地合成
+- tick数据用来做风控与本地停止单,不做其他功能
+
+
+## 20190628
+- 检测中官方的CtaEngine出现逻辑问题,在sync_strategy_data的时候,采用的是w+的形式写入json
+- 如果同名策略,在两次写入的时候,后面的参数是最新的,但是在第二次载入的时候,就会出现问题
+- CtaEngine每次初始化的时候,用的都是strategy_name作为策略的唯一标识符
+- 因此如果不将原来的同名策略配置删除,策略不会读取到最新的策略配置文件
+- 因此,为了统一,将载入策略与存储策略参数都统一到数据库内
+- 改： CtaEngine里面的load_strategy_setting和save_strategy_setting,从数据库中拿
+
+- 1 修改CtaEngine里面的load_strategy_setting
+- 2 修改CtaEngine里面的update_strategy_setting
+- 3 修改CtaEngine里面的remove_strategy_setting
+- 4 修改CtaEngine里面的load_strategy_data
+- 5 修改CtaEngine里面的sync_strategy_data
+
+
+
+
+
+
 

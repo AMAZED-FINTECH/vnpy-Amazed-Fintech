@@ -98,6 +98,7 @@ class CtaTemplate(ABC):
         parameters
         variables
         其中任何一个改变，都视为不同的策略
+        get_data的时候,这里才会添加class_name
         """
         strategy_data = {
             "strategy_name": self.strategy_name,

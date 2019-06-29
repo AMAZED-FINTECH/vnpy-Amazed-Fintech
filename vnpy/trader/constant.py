@@ -35,6 +35,7 @@ class Status(Enum):
     ALLTRADED = "全部成交"
     CANCELLED = "已撤销"
     REJECTED = "拒单"
+    COMPLTE = "撤单成功且完全成交"
 
 
 class Product(Enum):
@@ -112,6 +113,9 @@ class Exchange(Enum):
     # CryptoCurrency
     BITMEX = "BITMEX"
     OKEX = "OKEX"
+    OKEXF = "OKEXF"
+    OKEXM = "OKEXM"
+    OKEXS = "OKEXS"
     HUOBI = "HUOBI"
     BITFINEX = "BITFINEX"
     BINANCE = "BINANCE"
