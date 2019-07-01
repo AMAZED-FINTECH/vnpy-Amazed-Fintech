@@ -319,6 +319,19 @@ order trade position account 在测试策略的时候,还需要记录Bar或Tick�
 - 4 修改CtaEngine里面的load_strategy_data
 - 5 修改CtaEngine里面的sync_strategy_data
 
+## 20190701
+- 1 版本可单独查询历史4小时数据(self.inited的位置在CtaEngine内修改,使之可收到历史数据)
+- 2 版本可查询历史4小时、1小时数据,先查大周期的,再查小周期的,中间间隔5秒,不至混乱
+- 3 实盘中,小时线与分钟线是必查的
+- 备忘:OKEX历史数据的查询,是包含当前不完整的分钟数据的!!!因此查询历史数据并推送的时候,要删除当前数据
+- 测试:当前版本以double_ma_strategy为模板,可以进行单策略的可视化测试与非可视化测试.
+
+
+
+
+
+
+
 
 
 

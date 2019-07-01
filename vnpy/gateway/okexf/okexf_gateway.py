@@ -588,7 +588,8 @@ class OkexfRestApi(RestClient):
     def on_query_history(self, data, req):
         """调取历史数据"""
         # OKEX返回的是倒叙的K线,需要重新排列
-        for i in range(len(data)):
+
+        for i in range(len(data) - 1):
             d = data[-i - 1]
             dt = utc_to_local(d[0])
             bar = BarData(
@@ -604,6 +605,7 @@ class OkexfRestApi(RestClient):
                 gateway_name=self.gateway_name
             )
             self.gateway.on_bar(bar)
+
 
 
 class OkexfWebsocketApi(WebsocketClient):

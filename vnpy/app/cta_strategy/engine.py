@@ -212,27 +212,28 @@ class CtaEngine(BaseEngine):
 
         # 如果有策略，推送至策略的on_bar情况，由分钟bar合成更大级别的bar，进而由策略自己使用
         for strategy in strategies:
-            if strategy.inited:
-                self.call_strategy_func(strategy, strategy.on_bar, bar)
+            #if strategy.inited:
+            # 日志记录时,要先显示发出,再由策略收到
+            # self.write_log("engine process Bar_Data:" + str(bar.__dict__), strategy)
+            self.call_strategy_func(strategy, strategy.on_bar, bar)
 
-                # =================================
-                # 这里在测试的时候,写入数据库和log两种形式
+            # =================================
+            # 这里在测试的时候,写入数据库和log两种形式
 
-                # 实盘中,只写入数据库中
-                d = bar.__dict__
-                d["account_id"] = self.account_id
-                d["strategy_name"] = strategy.strategy_name
-                d["exchange"] = d["exchange"].value
-                d["interval"] = d["interval"].value
-                flt = {
-                    "vt_symbol": d["vt_symbol"],
-                    "interval": d["interval"],
-                    "datetime": d["datetime"],
-                       }
-                self.db_queue.put(["update", self.account_id, "Bar_Data", d, flt])
+            # 实盘中,只写入数据库中
+            d = bar.__dict__
+            d["account_id"] = self.account_id
+            d["strategy_name"] = strategy.strategy_name
+            d["exchange"] = d["exchange"].value
+            d["interval"] = d["interval"].value
+            flt = {
+                "vt_symbol": d["vt_symbol"],
+                "interval": d["interval"],
+                "datetime": d["datetime"],
+                   }
+            self.db_queue.put(["update", self.account_id, "Bar_Data", d, flt])
 
-                self.write_log("Bar_Data:" + str(d), strategy)
-                # =================================
+            # =================================
 
     def process_order_event(self, event: Event):
         """处理order事件"""
@@ -702,13 +703,7 @@ class CtaEngine(BaseEngine):
         """获取引擎模式,默认实盘模式"""
         return self.engine_type
 
-    def load_bar(
-        self, 
-        vt_symbol: str, 
-        days: int, 
-        interval: Interval,
-        callback: Callable[[BarData], None]
-    ):
+    def load_bar(self, vt_symbol: str, days: int, interval: Interval, callback: Callable[[BarData], None]):
         """载入历史bar"""
         symbol, exchange = extract_vt_symbol(vt_symbol)
         end = datetime.now()
@@ -732,12 +727,7 @@ class CtaEngine(BaseEngine):
         for bar in bars:
             callback(bar)
 
-    def load_tick(
-        self, 
-        vt_symbol: str,
-        days: int,
-        callback: Callable[[TickData], None]
-    ):
+    def load_tick(self, vt_symbol: str, days: int, callback: Callable[[TickData], None]):
         """同上"""
         symbol, exchange = extract_vt_symbol(vt_symbol)
         end = datetime.now()
@@ -753,9 +743,7 @@ class CtaEngine(BaseEngine):
         for tick in ticks:
             callback(tick)
 
-    def call_strategy_func(
-        self, strategy: CtaTemplate, func: Callable, params: Any = None
-    ):
+    def call_strategy_func(self, strategy: CtaTemplate, func: Callable, params: Any = None):
         """
         Call function of a strategy and catch any exception raised.
         调用策略的函数,基本输入有:
@@ -775,9 +763,7 @@ class CtaEngine(BaseEngine):
             msg = f"触发异常已停止\n{traceback.format_exc()}"
             self.write_log(msg, strategy)
 
-    def add_strategy(
-        self, class_name: str, strategy_name: str, vt_symbol: str, setting: dict
-    ):
+    def add_strategy(self, class_name: str, strategy_name: str, vt_symbol: str, setting: dict):
         """
         Add a new strategy.
         添加一个策略,
@@ -837,15 +823,20 @@ class CtaEngine(BaseEngine):
                 self.write_log(f"{strategy_name}已经完成初始化，禁止重复操作")
                 continue
 
+            # 设置策略初始化为真,如果此处不开始,则query_history数据回调用不了
+            # strategy.inited = True
+
             self.write_log(f"{strategy_name}开始执行初始化")
 
             # Call on_init function of strategy
             # 对每个策略调用回调函数on_init
-            self.call_strategy_func(strategy, strategy.on_init)
+            #self.call_strategy_func(strategy, strategy.on_init)
+            #self.write_log("engine start flag")
 
             # Restore strategy data(variables)
             # 策略数据,获取策略数据
             # 这里的data指的是策略的variables
+
             data = self.strategy_data.get(strategy_name, None)
             if data:
                 # 策略的variables
@@ -854,6 +845,8 @@ class CtaEngine(BaseEngine):
                     if value:
                         # 设置策略,名称,值 = strategy.name = value
                         setattr(strategy, name, value)
+
+            self.call_strategy_func(strategy, strategy.on_init)
 
             # Subscribe market data
             # 初始化,订阅合约
@@ -872,6 +865,7 @@ class CtaEngine(BaseEngine):
             # Put event to update init completed status.
             # 设置策略初始化为真
             strategy.inited = True
+
             self.put_strategy_event(strategy)
             self.write_log(f"{strategy_name}初始化完成")
 

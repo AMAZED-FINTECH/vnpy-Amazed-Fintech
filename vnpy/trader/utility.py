@@ -123,6 +123,8 @@ class BarGenerator:
     Notice:
     1. for x minute bar, x must be able to divide 60: 2, 3, 5, 6, 10, 15, 20, 30
     2. for x hour bar, x can be any number
+    最后一个参数是合成分钟线还是合成小时线
+    合成一小时线 用的Interval.MINUTE window=60
     """
 
     def __init__(
@@ -134,6 +136,9 @@ class BarGenerator:
     ):
         """Constructor"""
         self.bar = None
+        # 只要不进tick,self.on_bar就不会调用
+        # 也就是,如果是数字货币订阅官方bar,而不是本地合成那么on_bar的调用
+        # 只会是CtaEngine里面process_bar_event 之后的分发,不是这里的本地调用
         self.on_bar = on_bar
 
         self.interval = interval
@@ -206,24 +211,36 @@ class BarGenerator:
     def update_bar(self, bar: BarData):
         """
         Update 1 minute bar into generator
-        分钟Bar更新,如果订阅了其他周期,进行修改
+        window_bar更新, 5分钟 10分钟等
+        功能就是:输入进来1分钟的Bar,合成5分钟或者15分钟之类的Bar
+        改: 将update_bar变成完全的update_bar 分钟Bar 而将Update_bar里面的更新小时Bar提取出来,增加出来
+        因为这里的逻辑,本身就是要输入的是小时线,才可以合成更多周期的小时线
+        而且这里没有写K线的周期,很不方便
         """
         # If not inited, create window bar object
         # 如果没有初始化
         if not self.window_bar:
             # Generate timestamp for bar data
             # 如果是分钟Bar,创建datetime(这里在初始化的时候,会有很大问题,也就是如果从03分钟开始订阅,但是)
-            if self.interval == Interval.MINUTE:
-                dt = bar.datetime.replace(second=0, microsecond=0)
-            # 如果推送过来的不是一分钟Bar,变成整点Bar,也就是变成小时Bar
-            else:
-                dt = bar.datetime.replace(minute=0, second=0, microsecond=0)
+            dt = bar.datetime.replace(second=0, microsecond=0)
+
+            if self.window == 3:
+                period = Interval.MINUTE3
+            elif self.window == 5:
+                period = Interval.MINUTE5
+            elif self.window == 15:
+                period = Interval.MINUTE15
+            elif self.window == 30:
+                period = Interval.MINUTE30
+            elif self.window == 60:
+                period = Interval.HOUR
 
             # 创建Bar数据
             self.window_bar = BarData(
                 symbol=bar.symbol,
                 exchange=bar.exchange,
                 datetime=dt,
+                interval=period,
                 gateway_name=bar.gateway_name,
                 open_price=bar.open_price,
                 high_price=bar.high_price,
@@ -251,30 +268,75 @@ class BarGenerator:
         if self.interval == Interval.MINUTE:
             # x-minute bar
             # 如果是5分钟,则规则为: 4 + 1 整除5就推送,如果是15分钟,规则: 14 + 1 整除 15 推送
+            # 如果是60分钟,则59+1 % 60 = 0, 其余不为0
             if not (bar.datetime.minute + 1) % self.window:
                 finished = True
-        # 如果推送过来的是小时Bar,用一小时来合成更高的小时Bar
-        elif self.interval == Interval.HOUR:
-            # 如果存在上一个Bar,
-            if self.last_bar and bar.datetime.hour != self.last_bar.datetime.hour:
-                # 1-hour bar
-                # 如果是一小时的Bar,则小时Bar推送结束
-                if self.window == 1:
-                    finished = True
-                # x-hour bar
-                # 否则
-                else:
-                    # 将小时Bar的interval_count变成判断依据
-                    self.interval_count += 1
-
-                    # 如果当前的
-                    if not self.interval_count % self.window:
-                        finished = True
-                        self.interval_count = 0
 
         if finished:
             self.on_window_bar(self.window_bar)
-            print("本地合成")
+            self.window_bar = None
+
+        # Cache last bar object
+        self.last_bar = bar
+
+    def update_bar_hour(self, bar: BarData):
+        """
+        这里输入的是小时Bar
+        """
+        # If not inited, create window bar object
+        # 如果没有初始化
+        if not self.window_bar:
+            # Generate timestamp for bar data
+            # 将数据变成整点数据
+            dt = bar.datetime.replace(minute=0, second=0, microsecond=0)
+
+            # 创建Bar数据
+            if self.window == 2:
+                period = Interval.HOUR2
+            elif self.window == 4:
+                period = Interval.HOUR4
+            elif self.window == 6:
+                period = Interval.HOUR6
+
+            self.window_bar = BarData(
+                symbol=bar.symbol,
+                exchange=bar.exchange,
+                datetime=dt,
+                interval=period,
+                gateway_name=bar.gateway_name,
+                open_price=bar.open_price,
+                high_price=bar.high_price,
+                low_price=bar.low_price
+            )
+        # Otherwise, update high/low price into window bar
+        # 如果有初始化,则进行高地价的更新
+        else:
+            self.window_bar.high_price = max(
+                self.window_bar.high_price, bar.high_price)
+            self.window_bar.low_price = min(
+                self.window_bar.low_price, bar.low_price)
+
+        # Update close price/volume into window bar
+        # 更新最新价,交易量
+        self.window_bar.close_price = bar.close_price
+        self.window_bar.volume += int(bar.volume)
+        self.window_bar.open_interest = bar.open_interest
+
+        # Check if window bar completed
+        # 先假定没有完成
+        finished = False
+
+        # 如果存在上一个Bar
+        if self.last_bar and bar.datetime.hour != self.last_bar.datetime.hour:
+            # 1-hour bar
+            # 如果是一小时的Bar,则小时Bar推送结束
+            # 如果当前的
+            if not (bar.datetime.hour + 1) % self.window:
+                finished = True
+                self.interval_count = 0
+
+        if finished:
+            self.on_window_bar(self.window_bar)
             self.window_bar = None
 
         # Cache last bar object
@@ -283,6 +345,7 @@ class BarGenerator:
     def generate(self):
         """
         Generate the bar data and call callback immediately.
+        强制合成由tick合成的一分钟线,在尾盘的时候用到
         """
         self.bar.datetime = self.bar.datetime.replace(
             second=0, microsecond=0
@@ -306,6 +369,7 @@ class ArrayManager(object):
         self.size = size
         self.inited = False
 
+        self.time_array = []
         self.open_array = np.zeros(size)
         self.high_array = np.zeros(size)
         self.low_array = np.zeros(size)
@@ -320,12 +384,15 @@ class ArrayManager(object):
         if not self.inited and self.count >= self.size:
             self.inited = True
 
+        if len(self.time_array) >= self.size:
+            self.time_array.pop(0)
         self.open_array[:-1] = self.open_array[1:]
         self.high_array[:-1] = self.high_array[1:]
         self.low_array[:-1] = self.low_array[1:]
         self.close_array[:-1] = self.close_array[1:]
         self.volume_array[:-1] = self.volume_array[1:]
 
+        self.time_array.append(bar.datetime)
         self.open_array[-1] = bar.open_price
         self.high_array[-1] = bar.high_price
         self.low_array[-1] = bar.low_price
