@@ -10,7 +10,7 @@ import time
 import json
 import base64
 import zlib
-from copy import copy
+from copy import copy, deepcopy
 from datetime import datetime, timedelta
 from threading import Lock
 from urllib.parse import urlencode
@@ -248,7 +248,7 @@ class OkexfRestApi(RestClient):
         self.passphrase = passphrase
         self.leverage = leverage
 
-        self.connect_time = int(datetime.now().strftime("%y%m%d%H%M%S"))
+        self.connect_time = int(datetime.now().strftime("%Y%m%d%H%M%S"))
 
         self.init(REST_HOST, proxy_host, proxy_port)
         self.start(session_number)
@@ -302,7 +302,7 @@ class OkexfRestApi(RestClient):
             on_error=self.on_send_order_error,
         )
 
-        self.gateway.on_order(order)
+        self.gateway.on_order(copy(order))
         return order.vt_orderid
 
     def cancel_order(self, req: CancelRequest):
@@ -429,10 +429,10 @@ class OkexfRestApi(RestClient):
                     symbol=pos_data["instrument_id"].upper(),
                     exchange=Exchange.OKEXF,
                     direction=Direction.LONG,
-                    volume=pos_data["long_qty"],
+                    volume=float(pos_data["long_qty"]),
                     frozen=float(pos_data["long_qty"]) - float(pos_data["long_avail_qty"]),
-                    price=pos_data["long_avg_cost"],
-                    pnl=pos_data["realised_pnl"],
+                    price=float(pos_data["long_avg_cost"]),
+                    pnl=float(pos_data["realised_pnl"]),
                     gateway_name=self.gateway_name,
                 )
                 self.gateway.on_position(pos)
@@ -442,13 +442,13 @@ class OkexfRestApi(RestClient):
                     symbol=pos_data["instrument_id"],
                     exchange=Exchange.OKEXF,
                     direction=Direction.SHORT,
-                    volume=pos_data["short_qty"],
+                    volume=float(pos_data["short_qty"]),
                     frozen=float(pos_data["short_qty"]) - float(pos_data["short_avail_qty"]),
-                    price=pos_data["short_avg_cost"],
-                    pnl=pos_data["realised_pnl"],
+                    price=float(pos_data["short_avg_cost"]),
+                    pnl=float(pos_data["realised_pnl"]),
                     gateway_name=self.gateway_name,
                 )
-                self.gateway.on_position(pos)
+                self.gateway.on_position(copy(pos))
 
     def on_query_order(self, data, request):
         """查询订单"""
@@ -465,11 +465,11 @@ class OkexfRestApi(RestClient):
                 traded=int(order_data["filled_qty"]),
                 price=float(order_data["price"]),
                 volume=float(order_data["size"]),
-                time=utc_to_local(order_data["timestamp"]).strftime("%H:%M:%S"),
+                time=utc_to_local(order_data["timestamp"]).strftime("%Y-%m-%d %H:%M:%S.%fZ"),
                 status=STATUS_OKEXF2VT[order_data["state"]],
                 gateway_name=self.gateway_name,
             )
-            self.gateway.on_order(order)
+            self.gateway.on_order(copy(order))
 
     def on_query_time(self, data, request):
         """查询时间"""
@@ -486,7 +486,7 @@ class OkexfRestApi(RestClient):
 
         order = request.extra
         order.status = Status.REJECTED
-        order.time = datetime.now().strftime("%H:%M:%S.%f")        
+        order.time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%fZ")
         self.gateway.on_order(order)
         msg = f"委托失败，状态码：{status_code}，信息：{request.response.text}"
         self.gateway.write_log(msg)
@@ -604,8 +604,7 @@ class OkexfRestApi(RestClient):
                 close_price=float(d[4]),
                 gateway_name=self.gateway_name
             )
-            self.gateway.on_bar(bar)
-
+            self.gateway.on_bar(copy(bar))
 
 
 class OkexfWebsocketApi(WebsocketClient):
@@ -644,7 +643,7 @@ class OkexfWebsocketApi(WebsocketClient):
         self.secret = secret.encode()
         self.passphrase = passphrase
 
-        self.connect_time = int(datetime.now().strftime("%y%m%d%H%M%S"))
+        self.connect_time = int(datetime.now().strftime("%Y%m%d%H%M%S"))
 
         self.init(WEBSOCKET_HOST, proxy_host, proxy_port)
 
@@ -900,7 +899,7 @@ class OkexfWebsocketApi(WebsocketClient):
             price=float(d["price"]),
             volume=float(d["size"]),
             traded=float(d["filled_qty"]),
-            time=utc_to_local(d["timestamp"]).strftime("%H:%M:%S"),
+            time=utc_to_local(d["timestamp"]).strftime("%Y-%m-%d %H:%M:%S.%fZ"),
             status=STATUS_OKEXF2VT[d["state"]],
             gateway_name=self.gateway_name,
         )
@@ -925,7 +924,7 @@ class OkexfWebsocketApi(WebsocketClient):
             time=order.time,
             gateway_name=self.gateway_name,
         )
-        self.gateway.on_trade(trade)
+        self.gateway.on_trade(copy(trade))
 
     def on_account(self, d):
         """"""
@@ -937,7 +936,7 @@ class OkexfWebsocketApi(WebsocketClient):
                 frozen=float(d.get("margin_for_unfilled", 0)),
                 gateway_name=self.gateway_name
             )
-            self.gateway.on_account(account)
+            self.gateway.on_account(copy(account))
 
     def on_position(self, d):
         """"""
@@ -945,25 +944,25 @@ class OkexfWebsocketApi(WebsocketClient):
             symbol=d["instrument_id"],
             exchange=Exchange.OKEXF,
             direction=Direction.LONG,
-            volume=d["long_qty"],
+            volume=float(d["long_qty"]),
             frozen=float(d["long_qty"]) - float(d["long_avail_qty"]),
-            price=d["long_avg_cost"],
-            pnl=d["realised_pnl"],
+            price=float(d["long_avg_cost"]),
+            pnl=float(d["realised_pnl"]),
             gateway_name=self.gateway_name,
         )
-        self.gateway.on_position(pos)
+        self.gateway.on_position(copy(pos))
 
         pos = PositionData(
             symbol=d["instrument_id"],
             exchange=Exchange.OKEXF,
             direction=Direction.SHORT,
-            volume=d["short_qty"],
+            volume=float(d["short_qty"]),
             frozen=float(d["short_qty"]) - float(d["short_avail_qty"]),
-            price=d["short_avg_cost"],
-            pnl=d["realised_pnl"],
+            price=float(d["short_avg_cost"]),
+            pnl=float(d["realised_pnl"]),
             gateway_name=self.gateway_name,
         )
-        self.gateway.on_position(pos)
+        self.gateway.on_position(copy(pos))
         
 
 def generate_signature(msg: str, secret_key: str):

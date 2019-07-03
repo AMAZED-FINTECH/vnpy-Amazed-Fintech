@@ -120,13 +120,14 @@ class DoubleMaStrategy(CtaTemplate):
         """
         # print(tick.__dict__)
         # self.bg.update_tick(tick)
-        pass
+        return
 
     def on_bar(self, bar: BarData):
         """
         Callback of new bar data update.
         这里在初始化回调的时候,会有不同的周期进来,因此需要整理
         """
+
         # 持久化运行期间,策略从gateway收到分钟数据->5分钟 ->30分钟 -> 60分钟
         if bar.interval == Interval.MINUTE:
             # 更新一分钟的am1
@@ -137,7 +138,7 @@ class DoubleMaStrategy(CtaTemplate):
                     am1.update_bar(bar)
             else:
                 am1.update_bar(bar)
-            self.write_log("double_ma_strategy 1分钟Bar" + str(bar.__dict__))
+            #self.write_log("double_ma_strategy 1分钟Bar" + str(bar.__dict__))
             # 产生5分钟的bar
             self.bg5.update_bar(bar)
             # 产生30分钟的bar
@@ -164,7 +165,7 @@ class DoubleMaStrategy(CtaTemplate):
             # 只有时间符合的才更新
             if bar.datetime > am5.time_array[-1]:
                 am5.update_bar(bar)
-                self.write_log("double_ma_strategy 5分钟Bar" + str(bar.__dict__))
+                # self.write_log("double_ma_strategy 5分钟Bar" + str(bar.__dict__))
             if not am5.inited:
                 return
         else:
@@ -173,32 +174,34 @@ class DoubleMaStrategy(CtaTemplate):
         am = self.am5
 
         fast_ma = am.sma(self.fast_window, array=True)
-        self.fast_ma0 = fast_ma[-1]
-        self.fast_ma1 = fast_ma[-2]
+        self.fast_ma0 = round(fast_ma[-1], 2)
+        self.fast_ma1 = round(fast_ma[-2], 2)
 
         slow_ma = am.sma(self.slow_window, array=True)
-        self.slow_ma0 = slow_ma[-1]
-        self.slow_ma1 = slow_ma[-2]
+        self.slow_ma0 = round(slow_ma[-1], 2)
+        self.slow_ma1 = round(slow_ma[-2], 2)
 
         cross_over = self.fast_ma0 > self.slow_ma0 and self.fast_ma1 < self.slow_ma1
         cross_below = self.fast_ma0 < self.slow_ma0 and self.fast_ma1 > self.slow_ma1
 
-        print(am.time_array[-1].strftime("%Y-%m-%d %H:%M:%S")
-              + " fast_ma0: " + str(self.fast_ma0)
-              + " slow_ma0: " + str(self.slow_ma0))
-
         if cross_over:
             if self.pos == 0:
+                # 买 开
                 self.buy(bar.close_price + 20, 1)
             elif self.pos < 0:
+                # 平 空
                 self.cover(bar.close_price + 20, 1)
+                # 买 开
                 self.buy(bar.close_price + 20, 1)
 
         elif cross_below:
             if self.pos == 0:
+                # 空 开
                 self.short(bar.close_price - 20, 1)
             elif self.pos > 0:
+                # 平 多
                 self.sell(bar.close_price - 20, 1)
+                # 空 开
                 self.short(bar.close_price - 20, 1)
         self.put_event()
 
@@ -248,6 +251,7 @@ class DoubleMaStrategy(CtaTemplate):
         """
         Callback of new order data update.
         """
+        # print(order.__dict__)
         pass
 
     def on_trade(self, trade: TradeData):
@@ -259,7 +263,7 @@ class DoubleMaStrategy(CtaTemplate):
             self.pos += trade.volume
         else:
             self.pos -= trade.volume
-        self.put_event()
+        # self.put_event()
 
     def on_stop_order(self, stop_order: StopOrder):
         """

@@ -28,7 +28,8 @@ from vnpy.trader.event import (
     EVENT_ORDER, 
     EVENT_TRADE,
     EVENT_POSITION,
-    EVENT_BAR
+    EVENT_BAR,
+    EVENT_ACCOUNT
 )
 from vnpy.trader.constant import (
     Direction, 
@@ -158,6 +159,7 @@ class CtaEngine(BaseEngine):
         self.event_engine.register(EVENT_TRADE, self.process_trade_event)
         self.event_engine.register(EVENT_POSITION, self.process_position_event)
         self.event_engine.register(EVENT_BAR, self.process_bar_event)
+        self.event_engine.register(EVENT_ACCOUNT, self.process_account_event)
 
     def init_rqdata(self):
         """
@@ -325,9 +327,9 @@ class CtaEngine(BaseEngine):
         # 实盘中,只写入数据库中
         d["account_id"] = self.account_id
         d["strategy_name"] = strategy.strategy_name
+
         d["exchange"] = d["exchange"].value
         d["direction"] = d["direction"].value
-        d["type"] = d["type"].value
         d["offset"] = d["offset"].value
 
         flt = {
@@ -370,9 +372,9 @@ class CtaEngine(BaseEngine):
         d["account_id"] = self.account_id
         d["exchange"] = d["exchange"].value
         d["direction"] = d["direction"].value
-        d["datetime"] = copy(datetime.now())
-
-        self.db_queue.put(["insert", self.account_id, "Position_Data", d])
+        d["datetime"] = copy(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%fZ"))
+        if d["volume"] > 0:
+            self.db_queue.put(["insert", self.account_id, "Position_Data", d])
 
         self.write_log("Position_Data:" + str(d))
         # =================================
@@ -388,9 +390,9 @@ class CtaEngine(BaseEngine):
 
         # 实盘中,只写入数据库中
         d["account_id"] = self.account_id
-        d["datetime"] = copy(datetime.now())
-
-        self.db_queue.put(["insert", self.account_id, "Account_Data", d])
+        d["datetime"] = copy(datetime.now().strftime("%Y-%m-%d %H:%M:%S.%fZ"))
+        if d["balance"] > 0:
+            self.db_queue.put(["insert", self.account_id, "Account_Data", d])
 
         self.write_log("Account_Data:" + str(d))
         # =================================

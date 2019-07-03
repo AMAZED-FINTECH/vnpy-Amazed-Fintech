@@ -132,12 +132,12 @@ def cta_strategy_dataHeader(account_id):
 
 
 if __name__ == "__main__":
-    PositionHeader("mytest")
+    # PositionHeader("mytest")
     # AccountHeader("mytest")
     # TradeHeader("mytest")
     # OrderHeader("mytest")
     # cta_strategy_dataHeader("mytest")
-    # cta_strategy_settingHeader("mytest")
+    cta_strategy_settingHeader("mytest")
     # BarHeader("mytest")
 
 

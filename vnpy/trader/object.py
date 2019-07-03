@@ -296,6 +296,7 @@ class OrderRequest:
             price=self.price,
             volume=self.volume,
             gateway_name=gateway_name,
+            time=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%fZ"),
         )
         return order
 
