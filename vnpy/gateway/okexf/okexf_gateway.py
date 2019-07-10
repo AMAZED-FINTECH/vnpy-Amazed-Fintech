@@ -910,7 +910,7 @@ class OkexfWebsocketApi(WebsocketClient):
             return
 
         self.trade_count += 1
-        tradeid = f"{self.connect_time}{self.trade_count}"
+        tradeid = f"futures{self.connect_time}{self.trade_count}"
 
         trade = TradeData(
             symbol=order.symbol,

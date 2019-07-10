@@ -9,8 +9,10 @@ from typing import Any, Callable
 from datetime import datetime, timedelta
 from threading import Thread
 from queue import Queue, Empty
-from copy import copy
+from copy import copy, deepcopy
 import time
+import psutil
+import os
 
 from vnpy.event import Event, EventEngine
 from vnpy.trader.engine import BaseEngine, MainEngine
@@ -126,6 +128,7 @@ class CtaEngine(BaseEngine):
         self.db_thread = None
         self.db_queue = Queue()
         self.db_active = False
+        self.db_count = 0
 
     def init_engine(self):
         """
@@ -145,6 +148,14 @@ class CtaEngine(BaseEngine):
         self.load_strategy_data()
         self.register_event()
         self.write_log("CTA策略引擎初始化成功")
+
+    def account_id_change(self, new_id):
+        self.account_id = new_id
+
+    def init_dbmongo(self, name=None, password=None, ip="localhost", port="27017"):
+        self.db_name = name
+        self.db_pwd = password
+        self.db_mongo = dbMongo(name, password, ip, port)
 
     def close(self):
         """
@@ -203,7 +214,7 @@ class CtaEngine(BaseEngine):
 
     def process_bar_event(self, event: Event):
         """处理bar事件，主要是向订阅了bar的策略推送"""
-        bar = event.data
+        bar = deepcopy(event.data)
 
         strategies = self.symbol_strategy_map[bar.vt_symbol]
         if not strategies:
@@ -223,7 +234,7 @@ class CtaEngine(BaseEngine):
             # 这里在测试的时候,写入数据库和log两种形式
 
             # 实盘中,只写入数据库中
-            d = bar.__dict__
+            d = deepcopy(bar.__dict__)
             d["account_id"] = self.account_id
             d["strategy_name"] = strategy.strategy_name
             d["exchange"] = d["exchange"].value
@@ -240,7 +251,7 @@ class CtaEngine(BaseEngine):
     def process_order_event(self, event: Event):
         """处理order事件"""
         order = event.data
-        d = order.__dict__
+        d = deepcopy(order.__dict__)
 
         # 先转换order
         self.offset_converter.update_order(order)
@@ -304,7 +315,7 @@ class CtaEngine(BaseEngine):
         """处理成交事件"""
         trade = event.data
 
-        d = trade.__dict__
+        d = deepcopy(trade.__dict__)
         # Filter duplicate trade push
         # 如果推送过来的成交，不是此次运行期间的单子
         if trade.vt_tradeid in self.vt_tradeids:
@@ -360,7 +371,7 @@ class CtaEngine(BaseEngine):
         """处理仓位 事件"""
         position = event.data
 
-        d = position.__dict__
+        d = deepcopy(position.__dict__)
 
         # 就是把他转换，然后更新，就好了
         self.offset_converter.update_position(position)
@@ -383,7 +394,7 @@ class CtaEngine(BaseEngine):
         """处理账户 事件"""
         account = event.data
 
-        d = account.__dict__
+        d = deepcopy(account.__dict__)
 
         # =================================
         # 这里在测试的时候,写入数据库和log两种形式
@@ -405,17 +416,24 @@ class CtaEngine(BaseEngine):
             if stop_order.vt_symbol != tick.vt_symbol:
                 # 进行下一个循环
                 continue
+            # 为了保证下单,要查看tick内涨停价和5档价格,如果都没有,返回
+            if not tick.limit_up and not tick.bid_price_5:
+                continue
 
             # 多头停止单,tick价格上穿止损价
+            # 如果是buy的LONG + OPEN 的STOPORDER,当价格向上突破某一个价格的时候开仓
+            # 如果是cover的LONG + CLOSE 的STOPORDER,当价格向上突破某一个价格的时候平仓,意思是止损
             long_triggered = (
                 stop_order.direction == Direction.LONG and tick.last_price >= stop_order.price
             )
             # 空头停止单,tick价格下穿止损价
+            # 如果是short的SHORT + OPEN 的STOPORDER,当价格向下突破某一个价格的时候开仓
+            # 如果是sell的SHORT + CLOSE 的STOPORDER,当价格向下突破某一个价格的时候平仓,意思是止损
             short_triggered = (
                 stop_order.direction == Direction.SHORT and tick.last_price <= stop_order.price
             )
 
-            # 如果有砸穿价格
+            # 如果有触发条件的话
             if long_triggered or short_triggered:
                 # 是哪个策略的停止单
                 strategy = self.strategies[stop_order.strategy_name]
@@ -1028,7 +1046,7 @@ class CtaEngine(BaseEngine):
     def load_strategy_data(self):
         """
         Load strategy data from json file.
-        策略数据,策略的数据指的是什么
+        策略数据,策略的数据指的是什么,如果
         """
         results = self.db_mongo.dbQuery(self.account_id, self.data_dbname, {})
         for result in results:
@@ -1139,7 +1157,7 @@ class CtaEngine(BaseEngine):
     def update_strategy_setting(self, strategy_name: str, setting: dict):
         """
         Update setting file.
-        更新策略配置
+        更新策略配置到本地
         """
         strategy = self.strategies[strategy_name]
 
@@ -1253,7 +1271,32 @@ class CtaEngine(BaseEngine):
                 # task_type, data = task
 
             except Empty:
-                time.sleep(1)
-
+                self.db_count += 1
+                # 设定每隔一小时左右
+                if self.db_count >= 3600:
+                    while True:
+                        try:
+                            info = psutil.virtual_memory()
+                            self.write_log('重启内存使用：' + str(psutil.Process(os.getpid()).memory_info().rss))
+                            self.write_log('重启总内存：' + str(info.total))
+                            self.write_log('重启内存占比：' + str(info.percent))
+                            self.write_log('重启cpu个数：' + str(psutil.cpu_count()))
+                            self.write_log("数据库开始重启!!!")
+                            # 先将run关闭
+                            self.db_active = False
+                            # 正常关闭Mongodb的连接
+                            self.db_mongo.dbClient.close()
+                            self.db_mongo = None
+                            # 重新开启dbMongo()
+                            self.db_mongo = dbMongo(self.db_name, self.db_pwd)
+                            # 重新开启run
+                            self.db_active = True
+                            self.write_log("数据库重启成功!!!")
+                            break
+                        except Exception as e:
+                            self.write_log("数据库问题" + str(e))
             except Exception as e:
                 self.write_log(str(e))
+
+
+

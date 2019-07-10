@@ -120,7 +120,7 @@ class DoubleMaStrategy(CtaTemplate):
         """
         # print(tick.__dict__)
         # self.bg.update_tick(tick)
-        return
+        pass
 
     def on_bar(self, bar: BarData):
         """
@@ -138,7 +138,7 @@ class DoubleMaStrategy(CtaTemplate):
                     am1.update_bar(bar)
             else:
                 am1.update_bar(bar)
-            #self.write_log("double_ma_strategy 1分钟Bar" + str(bar.__dict__))
+            self.write_log("double_ma_strategy 1分钟Bar" + str(bar.__dict__))
             # 产生5分钟的bar
             self.bg5.update_bar(bar)
             # 产生30分钟的bar
@@ -165,7 +165,7 @@ class DoubleMaStrategy(CtaTemplate):
             # 只有时间符合的才更新
             if bar.datetime > am5.time_array[-1]:
                 am5.update_bar(bar)
-                # self.write_log("double_ma_strategy 5分钟Bar" + str(bar.__dict__))
+                self.write_log("double_ma_strategy 5分钟Bar" + str(bar.__dict__))
             if not am5.inited:
                 return
         else:
@@ -176,11 +176,13 @@ class DoubleMaStrategy(CtaTemplate):
         fast_ma = am.sma(self.fast_window, array=True)
         self.fast_ma0 = round(fast_ma[-1], 2)
         self.fast_ma1 = round(fast_ma[-2], 2)
-
+        self.write_log(datetime.now().strftime("%H:%M:%S") + " fastma0: " +str(self.fast_ma0))
+        self.write_log(datetime.now().strftime("%H:%M:%S") + " fastma1: " + str(self.fast_ma1))
         slow_ma = am.sma(self.slow_window, array=True)
         self.slow_ma0 = round(slow_ma[-1], 2)
         self.slow_ma1 = round(slow_ma[-2], 2)
-
+        self.write_log(datetime.now().strftime("%H:%M:%S") + " slowma0: " + str(self.slow_ma0))
+        self.write_log(datetime.now().strftime("%H:%M:%S") + " slowma1: " + str(self.slow_ma1))
         cross_over = self.fast_ma0 > self.slow_ma0 and self.fast_ma1 < self.slow_ma1
         cross_below = self.fast_ma0 < self.slow_ma0 and self.fast_ma1 > self.slow_ma1
 
@@ -259,11 +261,7 @@ class DoubleMaStrategy(CtaTemplate):
         Callback of new trade data update.
         """
         # 如果是多单，计算持仓时符号为正，如果是空单，计算持仓时符号为负
-        if trade.direction == Direction.LONG:
-            self.pos += trade.volume
-        else:
-            self.pos -= trade.volume
-        # self.put_event()
+        self.put_event()
 
     def on_stop_order(self, stop_order: StopOrder):
         """

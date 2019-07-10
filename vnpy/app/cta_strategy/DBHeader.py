@@ -1,7 +1,7 @@
 
 from vnpy.app.cta_strategy.DBMongo import dbMongo
 
-db = dbMongo()
+
 # 设置数据库的表头,增加易读性
 # 设置
 
@@ -120,11 +120,11 @@ def cta_strategy_dataHeader(account_id):
         "strategy_name": "test_doublema",
 
         "data": {
-            "fast_ma0": 0,
-            "fast_ma1": 0,
-            "slow_ma0": 1,
-            "slow_ma1": 1,
-            "pos": 10,
+            "fast_ma0": 1,
+            "fast_ma1": 2,
+            "slow_ma0": 3,
+            "slow_ma1": 4,
+            "pos": 0,
         },
     }
     db.dbUpdate(account_id, "cta_strategy_data", d, {}, True)
@@ -132,11 +132,12 @@ def cta_strategy_dataHeader(account_id):
 
 
 if __name__ == "__main__":
+    db = dbMongo()
     # PositionHeader("mytest")
     # AccountHeader("mytest")
     # TradeHeader("mytest")
     # OrderHeader("mytest")
-    # cta_strategy_dataHeader("mytest")
+    cta_strategy_dataHeader("mytest")
     cta_strategy_settingHeader("mytest")
     # BarHeader("mytest")
 

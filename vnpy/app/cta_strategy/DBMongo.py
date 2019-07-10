@@ -10,18 +10,20 @@ MONGOPORT = 27017
 
 class dbMongo(object):
 
-    def __init__(self):
-        self.connect()
+    def __init__(self, name=None, password=None, ip="localhost", port=27017):
+        self.connect(name, password, ip, port)
 
     # ----------------------------------------------------------------------
-    def connect(self):
+    def connect(self, name, password, ip, port):
         """连接MongoDB数据库"""
 
         # 读取MongoDB的设置
         try:
             # 设置MongoDB操作的超时时间为0.5秒
-            self.dbClient = MongoClient(MONGOHOST, MONGOPORT, connectTimeoutMS=500)
-
+            if not name:
+                self.dbClient = MongoClient(MONGOHOST, MONGOPORT, connectTimeoutMS=500)
+            else:
+                self.dbClient = MongoClient("mongodb://{0}:{1}@{2}:{3}/".format(name, password, ip, port))
             # 调用server_info查询服务器状态，防止服务器异常并未连接成功
             self.dbClient.server_info()
 
