@@ -343,9 +343,16 @@ event传到可视化那边会将类都删除,变成str,也就是Exchange->exchan
 
 
 
+## 20190716
 
+&nbsp;
 
-
+### 策略开发说明:
+1 windows版本连接远程数据库,配置DBHeader,相当于策略配置cta_strategy_setting和cta_strategy_data
+2 在examples / no_ui 下面添py文件,例如Noupload_run_test_0702.py内含apikey 和 secretkey 和passphase
+3 也就是说,一个类似的Noupload_run_test_0702.py配置的是一个账户的混合策略,也就是单账户多策略的情形
+4 在类似的Noupload_run_test_0702.py中设置访问历史数据的情形
+5 在06分钟 03秒附近,开启策略
 
 
 
