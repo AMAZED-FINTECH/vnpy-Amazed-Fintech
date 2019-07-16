@@ -341,19 +341,38 @@ event传到可视化那边会将类都删除,变成str,也就是Exchange->exchan
 ## 20190705
 - 1 实盘中,发现数据库连接会出现问题,经常性的断掉,怀疑是和连接的线程池有关,每隔一段时间重启一下试试
 
-
+&nbsp;
 
 ## 20190716
 
 &nbsp;
 
 ### 策略开发说明:
+修改:Cta Engine Log数据写入数据库
+修改:okexfgateway 订阅所有合约一分钟数据和Tick数据
 1 windows版本连接远程数据库,配置DBHeader,相当于策略配置cta_strategy_setting和cta_strategy_data
 2 在examples / no_ui 下面添py文件,例如Noupload_run_test_0702.py内含apikey 和 secretkey 和passphase
 3 也就是说,一个类似的Noupload_run_test_0702.py配置的是一个账户的混合策略,也就是单账户多策略的情形
 4 在类似的Noupload_run_test_0702.py中设置访问历史数据的情形
 5 在06分钟 03秒附近,开启策略
+6 账户命名使用规则: 姓名+账号自识别名称 例如: ZHANGSAN0805
+7 策略名命名规则: 姓名+账号自识别名称加策略名称 例如 ZHANGSAN0805_doublemabtc
 
+
+测试0702账号: 
+DoubleMa 5分钟 BTC 
+AtrRsi 15分钟 ETH
+Boll 30分钟 LTC
+
+测试0703账号:
+DoubleMa 5分钟 ETH
+AtrRsi 15分钟 LTC
+Boll 30分钟 BTC
+
+测试0704账号:
+DoubleMa 5分钟 LTC
+AtrRsi 15分钟 BTC
+Boll 30分钟 ETH
 
 
 

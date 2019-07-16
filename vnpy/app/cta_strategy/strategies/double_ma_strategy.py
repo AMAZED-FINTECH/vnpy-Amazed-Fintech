@@ -61,42 +61,7 @@ class DoubleMaStrategy(CtaTemplate):
         """
         self.write_log("策略初始化")
         # 这里在实盘的时候,由每个策略在init的时候,查询历史数据,不在本地查询,对于数字货币,直接用交易所的数据
-        """
-        req = HistoryRequest(symbol="BTC-USD-190927",
-                             exchange=Exchange.OKEXF,
-                             start=datetime.now(),
-                             interval=Interval.HOUR4)
-
-        okexgateway = self.cta_engine.main_engine.get_gateway("OKEXF")
-        okexgateway.query_history(req)
-        time.sleep(5)
-
-        req = HistoryRequest(symbol="BTC-USD-190927",
-                             exchange=Exchange.OKEXF,
-                             start=datetime.now(),
-                             interval=Interval.HOUR)
-    
-        okexgateway = self.cta_engine.main_engine.get_gateway("OKEXF")
-        okexgateway.query_history(req)
-        time.sleep(5)
-        """
-        req = HistoryRequest(symbol="BTC-USD-190927",
-                             exchange=Exchange.OKEXF,
-                             start=datetime.now(),
-                             interval=Interval.MINUTE5)
-        okexgateway = self.cta_engine.main_engine.get_gateway("OKEXF")
-        okexgateway.query_history(req)
-        time.sleep(5)
-
-        # 查询一个之后,要暂停一下,等待长周期历史K线读取完毕
-        req = HistoryRequest(symbol="BTC-USD-190927",
-                             exchange=Exchange.OKEXF,
-                             start=datetime.now(),
-                             interval=Interval.MINUTE)
-        okexgateway = self.cta_engine.main_engine.get_gateway("OKEXF")
-        okexgateway.query_history(req)
-        time.sleep(5)
-        self.write_log("查询完毕初始化数据")
+        self.write_log("查询初始化数据")
 
     def on_start(self):
         """

@@ -802,7 +802,7 @@ class OkexfWebsocketApi(WebsocketClient):
 
         # 这里添加gateway的文件，以保证能够一开始就订阅，这里算是改动比较大的了
         # 为了减少服务器压力，这里只需要订阅需要的合约，也就是季度交割合约
-        for futures in sub_instruments:
+        for futures in instruments:
             req = SubscribeRequest(symbol=futures, exchange=Exchange.OKEXF)
             self.subscribe(req)
 

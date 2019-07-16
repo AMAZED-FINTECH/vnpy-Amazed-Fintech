@@ -1225,11 +1225,18 @@ class CtaEngine(BaseEngine):
         """
         if strategy:
             msg = f"{strategy.strategy_name} -> {msg}"
-
+        d = {
+            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "gateway_name": "CtaStrategy",
+            "msg": msg
+        }
+        self.db_queue.put(["insert", self.account_id, "Log", d])
+        """
         log = LogData(msg=msg, gateway_name="CtaStrategy")
         event = Event(type=EVENT_CTA_LOG, data=log)
         # 写日志
         self.event_engine.put(event)
+        """
 
     def send_email(self, msg: str, strategy: CtaTemplate = None):
         """
