@@ -21,7 +21,7 @@ from datetime import datetime
 import time
 
 
-class DoubleMaStrategy(CtaTemplate):
+class DoubleEmaStrategy(CtaTemplate):
     author = "用Python的交易员"
 
     fast_window = 10
@@ -38,7 +38,7 @@ class DoubleMaStrategy(CtaTemplate):
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
-        super(DoubleMaStrategy, self).__init__(
+        super(DoubleEmaStrategy, self).__init__(
             cta_engine, strategy_name, vt_symbol, setting
         )
         self.am1 = ArrayManager()
@@ -138,12 +138,12 @@ class DoubleMaStrategy(CtaTemplate):
 
         am = self.am5
 
-        fast_ma = am.sma(self.fast_window, array=True)
+        fast_ma = am.ema(self.fast_window, array=True)
         self.fast_ma0 = round(fast_ma[-1], 2)
         self.fast_ma1 = round(fast_ma[-2], 2)
         self.write_log(datetime.now().strftime("%H:%M:%S") + " fastma0: " +str(self.fast_ma0))
         self.write_log(datetime.now().strftime("%H:%M:%S") + " fastma1: " + str(self.fast_ma1))
-        slow_ma = am.sma(self.slow_window, array=True)
+        slow_ma = am.ema(self.slow_window, array=True)
         self.slow_ma0 = round(slow_ma[-1], 2)
         self.slow_ma1 = round(slow_ma[-2], 2)
         self.write_log(datetime.now().strftime("%H:%M:%S") + " slowma0: " + str(self.slow_ma0))

@@ -443,6 +443,15 @@ class ArrayManager(object):
             return result
         return result[-1]
 
+    def ema(self, n, array=False):
+        """
+        Simple moving average.
+        """
+        result = talib.EMA(self.close, n)
+        if array:
+            return result
+        return result[-1]
+
     def std(self, n, array=False):
         """
         Standard deviation
