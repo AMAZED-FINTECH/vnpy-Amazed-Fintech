@@ -1299,6 +1299,7 @@ class CtaEngine(BaseEngine):
                             # 重新开启run
                             self.db_active = True
                             self.write_log("数据库重启成功!!!")
+                            self.db_count = 0
                             break
                         except Exception as e:
                             self.write_log("数据库问题" + str(e))
