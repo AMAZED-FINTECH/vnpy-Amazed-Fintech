@@ -21,6 +21,7 @@ dist
 .vntrader
 # 测试账号的内容之类的东西，不向github上传
 NoUpload*
+*strategy.py
 # *
 
 # Visual Studio intermediate files
