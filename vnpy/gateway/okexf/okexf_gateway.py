@@ -86,12 +86,6 @@ INTERVAL_VT2OKEX = {v: k for k, v in INTERVAL_OKEX2VT.items()}
 
 instruments = set()
 currencies = set()
-sub_instruments = ["BTC-USD-190927",
-                   "ETH-USD-190927",
-                   "LTC-USD-190927",
-                   "EOS-USD-190927",
-                   "BCH-USD-190927",
-                   ]
 
 
 class OkexfGateway(BaseGateway):
