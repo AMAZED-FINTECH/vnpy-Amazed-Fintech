@@ -177,11 +177,6 @@ class CtaEngine(BaseEngine):
         Init RQData client.
         """
         return
-        """
-        result = rqdata_client.init()
-        if result:
-            self.write_log("RQData数据接口初始化成功")
-        """
 
     def query_bar_from_rq(
         self, symbol: str, exchange: Exchange, interval: Interval, start: datetime, end: datetime
@@ -190,17 +185,6 @@ class CtaEngine(BaseEngine):
         Query bar data from RQData.
         """
         return
-        """
-        req = HistoryRequest(
-            symbol=symbol,
-            exchange=exchange,
-            interval=interval,
-            start=start,
-            end=end
-        )
-        data = rqdata_client.query_history(req)
-        return data
-        """
 
     def process_tick_event(self, event: Event):
         """处理tick事件，主要是向订阅了tick的策略推送"""

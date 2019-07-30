@@ -35,12 +35,12 @@ class MultiFactorTemplate(ABC):
         # 是否初始化，是否交易，当前的仓位
         self.inited = False
         self.trading = False
-        self.pos = 0
+        self.poses = {}
 
         # 添加策略变量，所有策略中都需要添加inited,trading,pos
         self.variables.insert(0, "inited")
         self.variables.insert(1, "trading")
-        self.variables.insert(2, "pos")
+        self.variables.insert(2, "poses")
 
         # 更新配置,配置添加进来
         self.update_setting(setting)

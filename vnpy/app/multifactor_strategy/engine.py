@@ -77,8 +77,8 @@ class MultiFactorEngine(BaseEngine):
     # 配置文件
     setting_filename = "multifactor_setting.json"
     data_filename = "multifactor_data.json"
-    setting_dbname = "multifactor_setting"
-    data_dbname = "multifactor__data"
+    setting_dbname = "multifactor_strategy_setting"
+    data_dbname = "multifactor_strategy_data"
     account_id = "mytest"
 
     def __init__(self, main_engine: MainEngine, event_engine: EventEngine):
@@ -326,9 +326,9 @@ class MultiFactorEngine(BaseEngine):
 
         # 如果是多单，计算持仓时符号为正，如果是空单，计算持仓时符号为负
         if trade.direction == Direction.LONG:
-            strategy.pos += trade.volume
+            strategy.pos[trade.vt_symbol] += trade.volume
         else:
-            strategy.pos -= trade.volume
+            strategy.pos[trade.vt_symbol] -= trade.volume
 
         # 仓位variable每次更新完都要在本地更新
         self.sync_strategy_data(strategy)
@@ -950,7 +950,7 @@ class MultiFactorEngine(BaseEngine):
         # 这里提供两个路径,实盘中,可以存在一个路径,也可以存在另一个路径,都可以
         path1 = Path(__file__).parent.joinpath("strategies")
         self.load_strategy_class_from_folder(
-            path1, "vnpy.app.cta_strategy.strategies")
+            path1, "vnpy.app.multifactor_strategy.strategies")
 
         path2 = Path.cwd().joinpath("strategies")
         self.load_strategy_class_from_folder(path2, "strategies")
@@ -1097,13 +1097,11 @@ class MultiFactorEngine(BaseEngine):
 
         self.strategy_setting[strategy_name] = {
             "class_name": strategy.__class__.__name__,
-            "vt_symbol": strategy.vt_symbol,
             "setting": setting,
         }
         d = {
             "strategy_name": strategy_name,
             "class_name": strategy.__class__.__name__,
-            "vt_symbol": strategy.vt_symbol,
             "setting": setting,
         }
         flt = {
