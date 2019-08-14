@@ -8,8 +8,11 @@ class AlgoTemplate:
     """"""
 
     _count = 0
+    # 展示名称
     display_name = ""
+    # 默认配置
     default_setting = {}
+    # 变量
     variables = []
 
     def __init__(
@@ -19,10 +22,14 @@ class AlgoTemplate:
         setting: dict
     ):
         """Constructor"""
+        # 引擎
         self.algo_engine = algo_engine
+        # 名称
         self.algo_name = algo_name
 
+        # 激活
         self.active = False
+        # 策略单
         self.active_orders = {}  # vt_orderid:order
 
         self.variables.insert(0, "active")
@@ -30,18 +37,19 @@ class AlgoTemplate:
     @classmethod
     def new(cls, algo_engine: BaseEngine, setting: dict):
         """Create new algo instance"""
+        # 创建新实例
         cls._count += 1
         algo_name = f"{cls.__name__}_{cls._count}"
         algo = cls(algo_engine, algo_name, setting)
         return algo
 
     def update_tick(self, tick: TickData):
-        """"""
+        """更新tick数据"""
         if self.active:
             self.on_tick(tick)
 
     def update_order(self, order: OrderData):
-        """"""
+        """更新订单"""
         if self.active:
             if order.is_active():
                 self.active_orders[order.vt_orderid] = order
@@ -51,12 +59,12 @@ class AlgoTemplate:
             self.on_order(order)
 
     def update_trade(self, trade: TradeData):
-        """"""
+        """更新成交"""
         if self.active:
             self.on_trade(trade)
 
     def update_timer(self):
-        """"""
+        """更新计时器"""
         if self.active:
             self.on_timer()
 
@@ -90,13 +98,13 @@ class AlgoTemplate:
         pass
 
     def start(self):
-        """"""
+        """激活状态改为True 调用on_start()"""
         self.active = True
         self.on_start()
         self.put_variables_event()
 
     def stop(self):
-        """"""
+        """停止策略"""
         self.active = False
         self.cancel_all()
         self.on_stop()

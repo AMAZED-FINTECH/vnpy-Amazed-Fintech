@@ -37,6 +37,7 @@ class ArbitrageAlgo(AlgoTemplate):
         super().__init__(algo_engine, algo_name, setting)
 
         # Parameters
+        # setting里面的参数
         self.active_vt_symbol = setting["active_vt_symbol"]
         self.passive_vt_symbol = setting["passive_vt_symbol"]
         self.spread_up = setting["spread_up"]
@@ -51,6 +52,7 @@ class ArbitrageAlgo(AlgoTemplate):
         self.passive_pos = 0
         self.timer_count = 0
 
+        # 订阅主动腿 订阅被动退
         self.subscribe(self.active_vt_symbol)
         self.subscribe(self.passive_vt_symbol)
 
@@ -62,11 +64,13 @@ class ArbitrageAlgo(AlgoTemplate):
         self.write_log("停止算法")
 
     def on_order(self, order: OrderData):
-        """"""
+        """收到订单之后的处理"""
         if order.vt_symbol == self.active_vt_symbol:
+            # 如果订单仍有效 submitting
             if not order.is_active():
                 self.active_vt_orderid = ""
         elif order.vt_symbol == self.passive_vt_symbol:
+            # 如果订单仍有效
             if not order.is_active():
                 self.passive_vt_orderid = ""
         self.put_variables_event()
@@ -74,11 +78,13 @@ class ArbitrageAlgo(AlgoTemplate):
     def on_trade(self, trade: TradeData):
         """"""
         # Update pos
+        # 方向为多头
         if trade.direction == Direction.LONG:
             if trade.vt_symbol == self.active_vt_symbol:
                 self.active_pos += trade.volume
             else:
                 self.passive_pos += trade.volume
+        # 方向为空头
         else:
             if trade.vt_symbol == self.active_vt_symbol:
                 self.active_pos -= trade.volume
@@ -86,6 +92,7 @@ class ArbitrageAlgo(AlgoTemplate):
                 self.passive_pos -= trade.volume
 
         # Hedge if active symbol traded
+        # 主动腿成交了之后就执行被动腿的成交 也就是 主动腿是流动性差的腿
         if trade.vt_symbol == self.active_vt_symbol:
             self.write_log("收到主动腿成交回报，执行对冲")
             self.hedge()
@@ -95,6 +102,7 @@ class ArbitrageAlgo(AlgoTemplate):
     def on_timer(self):
         """"""
         # Run algo by fixed interval
+        # 每隔一段时间检查一次 如果发现有未成交的 撤单
         self.timer_count += 1
         if self.timer_count < self.interval:
             self.put_variables_event()
@@ -121,6 +129,7 @@ class ArbitrageAlgo(AlgoTemplate):
             return
 
         # Calculate spread
+        # 计算盘口价差
         spread_bid_price = active_tick.bid_price_1 - passive_tick.ask_price_1
         spread_ask_price = active_tick.ask_price_1 - passive_tick.bid_price_1
 

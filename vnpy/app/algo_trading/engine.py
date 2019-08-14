@@ -42,7 +42,7 @@ class AlgoEngine(BaseEngine):
         self.load_algo_setting()
 
     def load_algo_template(self):
-        """"""
+        """载入策略模板,相当于CTA策略中的载入classes"""
         from .algos.twap_algo import TwapAlgo
         from .algos.iceberg_algo import IcebergAlgo
         from .algos.sniper_algo import SniperAlgo
@@ -62,11 +62,11 @@ class AlgoEngine(BaseEngine):
         self.add_algo_template(ArbitrageAlgo)
 
     def add_algo_template(self, template: AlgoTemplate):
-        """"""
+        """添加策略模板"""
         self.algo_templates[template.__name__] = template
 
     def load_algo_setting(self):
-        """"""
+        """载入算法配置"""
         self.algo_settings = load_json(self.setting_filename)
 
         for setting_name, setting in self.algo_settings.items():
@@ -75,18 +75,18 @@ class AlgoEngine(BaseEngine):
         self.write_log("算法配置载入成功")
 
     def save_algo_setting(self):
-        """"""
+        """保存算法配置"""
         save_json(self.setting_filename, self.algo_settings)
 
     def register_event(self):
-        """"""
+        """监听事件"""
         self.event_engine.register(EVENT_TICK, self.process_tick_event)
         self.event_engine.register(EVENT_TIMER, self.process_timer_event)
         self.event_engine.register(EVENT_ORDER, self.process_order_event)
         self.event_engine.register(EVENT_TRADE, self.process_trade_event)
 
     def process_tick_event(self, event: Event):
-        """"""
+        """处理tick事件"""
         tick = event.data
 
         algos = self.symbol_algo_map.get(tick.vt_symbol, None)
@@ -95,12 +95,12 @@ class AlgoEngine(BaseEngine):
                 algo.update_tick(tick)
 
     def process_timer_event(self, event: Event):
-        """"""
+        """每隔1秒进行的操作"""
         for algo in self.algos.values():
             algo.update_timer()
 
     def process_trade_event(self, event: Event):
-        """"""
+        """处理成交事件"""
         trade = event.data
 
         algo = self.orderid_algo_map.get(trade.vt_orderid, None)
@@ -108,7 +108,7 @@ class AlgoEngine(BaseEngine):
             algo.update_trade(trade)
 
     def process_order_event(self, event: Event):
-        """"""
+        """处理order事件"""
         order = event.data
 
         algo = self.orderid_algo_map.get(order.vt_orderid, None)
@@ -116,7 +116,7 @@ class AlgoEngine(BaseEngine):
             algo.update_order(order)
 
     def start_algo(self, setting: dict):
-        """"""
+        """启动algo"""
         template_name = setting["template_name"]
         algo_template = self.algo_templates[template_name]
 
@@ -127,19 +127,19 @@ class AlgoEngine(BaseEngine):
         return algo.algo_name
 
     def stop_algo(self, algo_name: str):
-        """"""
+        """停止algo"""
         algo = self.algos.get(algo_name, None)
         if algo:
             algo.stop()
             self.algos.pop(algo_name)
 
     def stop_all(self):
-        """"""
+        """停止所有algo"""
         for algo_name in list(self.algos.keys()):
             self.stop_algo(algo_name)
 
     def subscribe(self, algo: AlgoTemplate, vt_symbol: str):
-        """"""
+        """订阅"""
         contract = self.main_engine.get_contract(vt_symbol)
         if not contract:
             self.write_log(f'订阅行情失败，找不到合约：{vt_symbol}', algo)
